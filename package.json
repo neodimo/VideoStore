@@ -1,0 +1,68 @@
+{
+  "name": "videostore",
+  "version": "0.1.0-preview.2",
+  "private": true,
+  "description": "Local-first video library and honest quality picker",
+  "author": {
+    "name": "Omid & Animal",
+    "email": "24889876+neodimo@users.noreply.github.com"
+  },
+  "license": "UNLICENSED",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check:media-light": "node scripts/check-media-light.mjs",
+    "pack:win": "electron-packager . VideoStore --platform=win32 --arch=x64 --out=dist --overwrite --prune=true --ignore='^/test$' --ignore='^/dist$' --ignore='^/release$' --ignore='^/[.]git$'",
+    "pack:linux": "electron-packager . VideoStore --platform=linux --arch=x64 --out=dist --overwrite --prune=true --ignore='^/test$' --ignore='^/dist$' --ignore='^/release$' --ignore='^/[.]git$'",
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist:linux": "electron-builder --linux AppImage deb --publish never"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "jsdom": "^30.1.1"
+  },
+  "allowScripts": {
+    "electron@44.5.1": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "com.neodimo.videostore",
+    "productName": "VideoStore",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "VideoStore-Setup-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "VideoStore-${version}-${arch}.${ext}",
+      "category": "Video"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "neodimo",
+      "repo": "VideoStore"
+    }
+  }
+}

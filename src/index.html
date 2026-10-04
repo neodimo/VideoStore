@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://images.metahub.space https://episodes.metahub.space; script-src 'self'; style-src 'self'">
+  <title>VideoStore</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail">
+      <div class="brand"><div class="brand-mark">▶</div><span>VIDEO<span class="brand-light">STORE</span></span></div>
+      <div class="rail-label">YOUR SPACE</div>
+      <nav id="navigation" aria-label="Library views">
+        <button class="nav active" data-view="all">▦ <span>Library</span></button>
+        <button class="nav" data-view="discover">◇ <span>Discover</span></button>
+        <button class="nav" data-view="providers">✧ <span>Providers</span></button>
+        <button class="nav" data-view="storage">▥ <span>Storage</span></button>
+        <button class="nav" data-view="movie">▣ <span>Movies</span></button>
+        <button class="nav" data-view="tv">▤ <span>TV shows</span></button>
+        <button class="nav" data-view="watchlist">☆ <span>Watchlist</span></button>
+        <button class="nav" data-view="unwatched">◷ <span>Unwatched</span></button>
+      </nav>
+      <div class="rail-bottom">
+        <span class="rail-signal"></span> Local-first library
+        <small>No video is copied into the app.</small>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="breadcrumbs">YOUR COLLECTION <span>/</span> <strong id="crumb">Library</strong></div>
+        <div class="top-actions"><span class="top-local">● &nbsp;LOCAL FILES</span><button id="update" class="secondary">Check for updates</button><button id="scan-folder" class="secondary">Scan folder</button><button id="add" class="primary">＋ Add videos</button></div>
+      </header>
+      <div class="content">
+        <section class="hero">
+          <div class="hero-copy">
+            <span class="eyebrow">A BETTER VIEW OF YOUR COLLECTION</span>
+            <h1>Every version.<br><em>Every detail.</em></h1>
+            <p>Browse your videos and pick the edition that fits your screen and sound system. Verified media facts stay distinct from filename guesses.</p>
+            <button id="hero-add" class="hero-button">Add your first video <span>↗</span></button>
+          </div>
+          <div class="hero-art" aria-hidden="true"><div class="orb orb-one"></div><div class="orb orb-two"></div><div class="glass-card"><div class="glass-top">QUALITY / INSPECTOR</div><div class="glass-line long"></div><div class="glass-line"></div><div class="glass-badges"><b>4K</b><b>HDR</b><b>7.1</b></div><div class="glass-bottom">SOURCE DATA MATTERS <span>↗</span></div></div></div>
+        </section>
+        <div class="section-head"><div><div class="eyebrow">CURATED BY YOU</div><h2 id="view-heading">Your library</h2><p id="count">0 videos</p></div><div class="filters"><input id="search" type="search" placeholder="Search titles, files, editions…" aria-label="Search library"><select id="sort" aria-label="Sort library"><option value="quality">Best quality</option><option value="recent">Recently added</option><option value="title">Title A–Z</option></select></div></div>
+        <div id="status" role="status"></div>
+        <div id="grid" class="grid"></div>
+      </div>
+    </main>
+    <aside id="details" class="details" aria-label="Video details" hidden></aside>
+  </div>
+  <script src="./renderer.js"></script>
+</body>
+</html>
