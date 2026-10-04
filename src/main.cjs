@@ -10,18 +10,30 @@ const { PROVIDERS, testProvider } = require('./providers.cjs');
 const { GiB, evaluateDestination, recommend } = require('./storage.cjs');
 const { configureUpdater } = require('./updater.cjs');
 const { scanVideos } = require('./scan.cjs');
+const { ratingPoster } = require('./posters.cjs');
+const { inferLayout, LAYOUTS } = require('./placement.cjs');
+const { createMediaController } = require('./media-controller.cjs');
+const { createLanServer } = require('./lan.cjs');
 
 const execFileAsync = promisify(execFile);
 let libraryPath;
 let secretsPath;
 let connectedProviders = {};
 let scanCancelled = false;
-let library = { version: 1, items: [], destinations: [], preferences: { hdr: true, surround: true, highBitrate: true } };
+let mediaController;
+let lanServer;
+let saveChain = Promise.resolve();
+const posterPending = new Map();
+let library = { version: 1, items: [], destinations: [], jobs: [], lanEnabled: false, preferences: { hdr: true, surround: true, highBitrate: true } };
 
-async function save() {
-  const temporary = `${libraryPath}.tmp`;
-  await fs.writeFile(temporary, JSON.stringify(library, null, 2), { mode: 0o600 });
-  await fs.rename(temporary, libraryPath);
+function save() {
+  const snapshot = JSON.stringify(library, null, 2);
+  saveChain = saveChain.catch(() => {}).then(async () => {
+    const temporary = `${libraryPath}.tmp`;
+    await fs.writeFile(temporary, snapshot, { mode: 0o600 });
+    await fs.rename(temporary, libraryPath);
+  });
+  return saveChain;
 }
 
 function canEncrypt() {
@@ -38,10 +50,26 @@ async function saveProviderToken(id, token) {
   await fs.rename(temporary, secretsPath);
 }
 
+async function readProviderToken(id) {
+  if (!canEncrypt()) return null;
+  try {
+    const secrets = JSON.parse(await fs.readFile(secretsPath, 'utf8'));
+    return secrets[id] ? safeStorage.decryptString(Buffer.from(secrets[id], 'base64')) : null;
+  } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
 async function providerStatus() {
   let secrets = {};
   try { secrets = JSON.parse(await fs.readFile(secretsPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  return { secureStorage: canEncrypt(), providers: Object.keys(PROVIDERS).map(id => ({ id, label: PROVIDERS[id].label, configured: Boolean(secrets[id]), checked: Boolean(connectedProviders[id]) })) };
+  return { secureStorage: canEncrypt(), artwork: { configured: Boolean(secrets.rpdb) }, providers: Object.keys(PROVIDERS).map(id => ({ id, label: PROVIDERS[id].label, configured: Boolean(secrets[id]), checked: Boolean(connectedProviders[id]) })) };
+}
+
+async function posterFor(id) {
+  if (typeof id !== 'string' || !/^tt\d+$/.test(id)) throw new Error('Invalid IMDb ID');
+  const key = await readProviderToken('rpdb');
+  if (!key) return null;
+  if (!posterPending.has(id)) posterPending.set(id, ratingPoster(key, id, path.join(app.getPath('userData'), 'cache', 'posters')).finally(() => posterPending.delete(id)));
+  return posterPending.get(id);
 }
 
 async function probe(filePath) {
@@ -105,6 +133,24 @@ app.whenReady().then(async () => {
   } catch (error) { if (error.code !== 'ENOENT') console.error('Library load failed:', error); }
   for (const item of library.items) item.rank = score(item.quality, library.preferences);
 
+  mediaController = createMediaController({
+    getToken: readProviderToken,
+    getDestinations: () => library.destinations,
+    savedJobs: Array.isArray(library.jobs) ? library.jobs : [],
+    onImported: async filePath => { const result = await addFiles([filePath]); if (!result.added) throw new Error(result.errors.join('; ') || 'Library indexing failed'); },
+    onJobsChanged: jobs => { library.jobs = jobs; void save().catch(error => console.error('Job state save failed:', error.message)); for (const window of BrowserWindow.getAllWindows()) window.webContents.send('media:jobs', jobs); }
+  });
+  lanServer = createLanServer({
+    status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, provider: 'real-debrid', configuredDestinations: library.destinations.length }),
+    catalog: searchCatalog,
+    candidates: mediaController.refreshCandidates,
+    jobs: mediaController.visibleJobs,
+    plan: mediaController.preview,
+    submit: mediaController.submit,
+    cancel: mediaController.cancel,
+    poster: posterFor
+  });
+
   ipcMain.handle('library:list', () => library);
   ipcMain.handle('catalog:search', async (_event, query) => {
     if (typeof query !== 'string' || query.length > 100) throw new Error('Search must be 100 characters or fewer');
@@ -119,6 +165,22 @@ app.whenReady().then(async () => {
     connectedProviders[id] = result.checkedAt;
     return providerStatus();
   });
+  ipcMain.handle('artwork:configure', async (_event, key) => {
+    if (!canEncrypt()) throw new Error('OS-backed secure storage is unavailable; API key was not saved');
+    if (typeof key !== 'string' || !key.trim() || key.length > 4096) throw new Error('Invalid RatingPosterDB API key');
+    await saveProviderToken('rpdb', key.trim());
+    return providerStatus();
+  });
+  ipcMain.handle('artwork:poster', (_event, id) => posterFor(id));
+  ipcMain.handle('media:candidates', () => mediaController.refreshCandidates());
+  ipcMain.handle('media:plan', (_event, ids) => mediaController.preview(ids));
+  ipcMain.handle('media:submit', (_event, id) => mediaController.submit(id));
+  ipcMain.handle('media:jobs', () => mediaController.visibleJobs());
+  ipcMain.handle('media:cancel', (_event, id) => mediaController.cancel(id));
+  ipcMain.handle('lan:status', () => ({ running: lanServer.running(), addresses: lanServer.addresses(), port: 43879 }));
+  ipcMain.handle('lan:start', async () => { const result = await lanServer.start(); library.lanEnabled = true; await save(); return { ...result, running: true, pairing: lanServer.pairCode() }; });
+  ipcMain.handle('lan:stop', async () => { await lanServer.stop(); library.lanEnabled = false; await save(); return { running: false }; });
+  ipcMain.handle('lan:pairCode', () => { if (!lanServer.running()) throw new Error('Network host is not running'); return lanServer.pairCode(); });
   ipcMain.handle('storage:list', async () => {
     const results = [];
     for (const destination of library.destinations) {
@@ -135,7 +197,7 @@ app.whenReady().then(async () => {
     if (selected.canceled) return null;
     const folder = await fs.realpath(selected.filePaths[0]);
     if (library.destinations.some(item => item.path === folder && item.type === type)) throw new Error('Folder already configured for this media type');
-    const destination = { id: crypto.randomUUID(), path: folder, type, label: label.trim() || path.basename(folder), reservePercent: 10, reserveBytes: 500 * GiB };
+    const destination = { id: crypto.randomUUID(), path: folder, type, label: label.trim() || path.basename(folder), reservePercent: 10, reserveBytes: 500 * GiB, layout: await inferLayout(folder, type) };
     library.destinations.push(destination);
     await save();
     return destination;
@@ -151,6 +213,13 @@ app.whenReady().then(async () => {
     if (!destination) throw new Error('Unknown destination');
     destination.reservePercent = reservePercent;
     destination.reserveBytes = Math.ceil(reserveGiB * GiB);
+    await save();
+    return true;
+  });
+  ipcMain.handle('storage:layout', async (_event, id, layout) => {
+    const destination = library.destinations.find(item => item.id === id);
+    if (!destination || !LAYOUTS[destination.type]?.has(layout)) throw new Error('Invalid folder layout');
+    destination.layout = layout;
     await save();
     return true;
   });
@@ -212,6 +281,7 @@ app.whenReady().then(async () => {
     if (failure) throw new Error(failure);
     return true;
   });
+  if (library.lanEnabled) lanServer.start().catch(error => console.error('LAN host failed to start:', error.message));
   await createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>VideoStore · Home host</title><link rel="stylesheet" href="/remote.css"></head>
+<body>
+  <header><div class="brand"><b>▶</b> VIDEO<span>STORE</span></div><div class="host-tag">Connected to your media host</div></header>
+  <main>
+    <section id="pairing" class="pairing" hidden><h1>Pair with your media host</h1><p>On Animal’s machine, open VideoStore → Network and enter its current six-digit code here. Media and debrid links remain on the host.</p><form id="pair-form"><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Six-digit pairing code" placeholder="000000" required><button>Pair laptop</button></form></section>
+    <section id="workspace" hidden>
+      <div class="intro"><div><small>YOUR MEDIA HOST</small><h1>Choose here. Download there.</h1><p>Browse titles, choose a file already listed in your Real-Debrid account, and send an explicit placement plan to the host. The laptop never receives a debrid link or media bytes.</p></div><div class="pill">Host connected</div></div>
+      <div class="columns">
+        <section class="browse"><div class="heading"><div><small>DISCOVER</small><h2>Movies & TV</h2></div><input id="catalog-search" type="search" placeholder="Search titles…" aria-label="Search titles"></div><div id="catalog" class="poster-grid"></div></section>
+        <aside class="side"><section class="card"><small>ACCOUNT FILES</small><h2>Real-Debrid</h2><p>Only files already listed by your account appear here. Filename quality is tentative until the host inspects the download.</p><input id="candidate-search" type="search" placeholder="Filter account files…" aria-label="Filter account files"><div id="candidates"></div><button id="refresh-candidates" class="subtle">Refresh account files</button></section><section class="card"><small>DESTINATION PREVIEW</small><h2>Cart <span id="cart-count">0</span></h2><div id="cart"></div><button id="preview" disabled>Preview space & folders</button><div id="plan"></div><button id="submit" hidden>Send to host</button></section><section class="card"><small>HOST ACTIVITY</small><h2>Downloads</h2><div id="jobs"></div></section></aside>
+      </div>
+    </section>
+    <p id="notice" role="status"></p>
+  </main>
+  <script src="/remote.js"></script>
+</body>
+</html>

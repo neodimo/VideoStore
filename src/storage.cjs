@@ -1,9 +1,9 @@
 const GiB = 1024 ** 3;
 
-function evaluateDestination(destination, fileBytes, stats) {
+function evaluateDestination(destination, fileBytes, stats, reservedBytes = 0) {
   if (!Number.isSafeInteger(fileBytes) || fileBytes <= 0) throw new Error('An exact positive file size is required before placement');
   const totalBytes = stats.blocks * stats.bsize;
-  const freeBytes = stats.bavail * stats.bsize;
+  const freeBytes = stats.bavail * stats.bsize - reservedBytes;
   const reservePercent = Number.isFinite(destination.reservePercent) ? destination.reservePercent : 10;
   const reserveBytes = Number.isFinite(destination.reserveBytes) ? destination.reserveBytes : 500 * GiB;
   if (reservePercent < 0 || reservePercent > 90 || reserveBytes < 0) throw new Error('Invalid storage reserve');
