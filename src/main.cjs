@@ -141,7 +141,7 @@ app.whenReady().then(async () => {
     onJobsChanged: jobs => { library.jobs = jobs; void save().catch(error => console.error('Job state save failed:', error.message)); for (const window of BrowserWindow.getAllWindows()) window.webContents.send('media:jobs', jobs); }
   });
   lanServer = createLanServer({
-    status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, provider: 'real-debrid', configuredDestinations: library.destinations.length }),
+    status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, providers: ['real-debrid', 'torbox'], configuredDestinations: library.destinations.length }),
     catalog: searchCatalog,
     candidates: mediaController.refreshCandidates,
     jobs: mediaController.visibleJobs,
@@ -172,7 +172,7 @@ app.whenReady().then(async () => {
     return providerStatus();
   });
   ipcMain.handle('artwork:poster', (_event, id) => posterFor(id));
-  ipcMain.handle('media:candidates', () => mediaController.refreshCandidates());
+  ipcMain.handle('media:candidates', (_event, force) => mediaController.refreshCandidates(force === true));
   ipcMain.handle('media:plan', (_event, ids) => mediaController.preview(ids));
   ipcMain.handle('media:submit', (_event, id) => mediaController.submit(id));
   ipcMain.handle('media:jobs', () => mediaController.visibleJobs());

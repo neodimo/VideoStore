@@ -43,7 +43,7 @@ function renderCatalog() {
 function renderCandidates() {
   const query = $('#candidate-search').value.trim().toLowerCase();
   const shown = candidates.filter(item => !query || `${item.title} ${item.filename}`.toLowerCase().includes(query)).slice(0, 35);
-  $('#candidates').innerHTML = shown.length ? shown.map(item => `<div class="row" data-id="${escapeHtml(item.id)}"><b>${escapeHtml(item.filename)}</b><small>${size(item.sizeBytes)} · ${escapeHtml(item.quality.resolution || 'resolution unknown')} · ${escapeHtml(item.quality.hdrClaim ? `${item.quality.hdrClaim} (filename claim)` : 'HDR unknown')} · Real-Debrid</small><button ${!item.sizeBytes || item.availability === 'No link' ? 'disabled' : ''}>Add to cart</button></div>`).join('') : '<p class="empty">No matching account files. Refresh or try a different title.</p>';
+  $('#candidates').innerHTML = shown.length ? shown.map(item => `<div class="row" data-id="${escapeHtml(item.id)}"><b>${escapeHtml(item.filename)}</b><small>${size(item.sizeBytes)} · ${escapeHtml(item.quality.resolution || 'resolution unknown')} · ${escapeHtml(item.quality.hdrClaim ? `${item.quality.hdrClaim} (filename claim)` : 'HDR unknown')} · ${escapeHtml(item.provider === 'torbox' ? `TorBox ${item.sourceKind}` : 'Real-Debrid')}</small><button ${!item.sizeBytes || item.availability === 'No link' ? 'disabled' : ''}>Add to cart</button></div>`).join('') : '<p class="empty">No matching account files. Refresh or try a different title.</p>';
   document.querySelectorAll('#candidates .row button').forEach(button => button.addEventListener('click', () => { const item = candidates.find(row => row.id === button.closest('.row').dataset.id); if (!cart.some(row => row.id === item.id)) { cart.push(item); plan = null; renderCart(); } }));
 }
 
@@ -61,7 +61,7 @@ function renderPlan() {
 }
 
 async function loadCatalog(query = '') { try { catalog = await api(`/api/catalog?q=${encodeURIComponent(query)}`); renderCatalog(); } catch (error) { notice(error.message, true); } }
-async function loadCandidates() { try { candidates = await api('/api/candidates'); renderCandidates(); } catch (error) { $('#candidates').innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; } }
+async function loadCandidates(force = false) { try { const result = await api(force ? '/api/candidates?refresh=1' : '/api/candidates'); candidates = result.items; renderCandidates(); if (result.warnings?.length) notice(result.warnings.join(' · '), true); } catch (error) { $('#candidates').innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; } }
 async function loadJobs() {
   try {
     const jobs = await api('/api/jobs');
@@ -73,7 +73,7 @@ async function loadJobs() {
 $('#pair-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/pair', { method: 'POST', body: JSON.stringify({ code: event.currentTarget.elements.code.value }) }); showWorkspace(); await initialize(); } catch (error) { notice(error.message, true); } });
 $('#catalog-search').addEventListener('input', () => { clearTimeout(catalogTimer); catalogTimer = setTimeout(() => loadCatalog($('#catalog-search').value), 350); });
 $('#candidate-search').addEventListener('input', renderCandidates);
-$('#refresh-candidates').addEventListener('click', loadCandidates);
+$('#refresh-candidates').addEventListener('click', () => loadCandidates(true));
 $('#preview').addEventListener('click', async () => { try { plan = await api('/api/plan', { method: 'POST', body: JSON.stringify({ ids: cart.map(item => item.id) }) }); renderPlan(); notice('Review every folder and post-download free-space value before sending.'); } catch (error) { notice(error.message, true); } });
 $('#submit').addEventListener('click', async () => { try { const result = await api('/api/submit', { method: 'POST', body: JSON.stringify({ planId: plan.planId }) }); cart = []; plan = null; renderCart(); await loadJobs(); notice(`${result.jobIds.length} download job${result.jobIds.length === 1 ? '' : 's'} sent to the host. No files came from this laptop.`); } catch (error) { notice(error.message, true); } });
 

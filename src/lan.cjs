@@ -82,7 +82,7 @@ function createLanServer(handlers, options = {}) {
     try {
       if (request.method === 'GET' && url.pathname === '/api/status') return send(response, 200, await handlers.status());
       if (request.method === 'GET' && url.pathname === '/api/catalog') return send(response, 200, await handlers.catalog(url.searchParams.get('q') || ''));
-      if (request.method === 'GET' && url.pathname === '/api/candidates') return send(response, 200, await handlers.candidates());
+      if (request.method === 'GET' && url.pathname === '/api/candidates') return send(response, 200, await handlers.candidates(url.searchParams.get('refresh') === '1'));
       if (request.method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, handlers.jobs());
       if (request.method === 'GET' && /^\/api\/poster\/tt\d+$/.test(url.pathname)) {
         const art = await handlers.poster(url.pathname.split('/').at(-1));

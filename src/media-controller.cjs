@@ -1,11 +1,13 @@
 const crypto = require('node:crypto');
 const { listDownloads, publicCandidate } = require('./realdebrid.cjs');
+const { listDownloads: listTorboxDownloads, requestDownloadLink } = require('./torbox.cjs');
 const { planCart, volumeKey } = require('./placement.cjs');
 const { downloadToLibrary } = require('./downloader.cjs');
 
-function createMediaController({ getToken, getDestinations, onImported, onJobsChanged = () => {}, savedJobs = [], listImpl = listDownloads, planImpl = planCart, downloadImpl = downloadToLibrary }) {
+function createMediaController({ getToken, getDestinations, onImported, onJobsChanged = () => {}, savedJobs = [], listImpl = listDownloads, torboxListImpl = listTorboxDownloads, torboxLinkImpl = requestDownloadLink, planImpl = planCart, downloadImpl = downloadToLibrary }) {
   let candidates = new Map();
   let candidateFetchedAt = 0;
+  let providerWarnings = [];
   const plans = new Map();
   const jobSources = new Map();
   const jobs = new Map(savedJobs.map(job => [job.id, ['queued', 'downloading'].includes(job.state) ? { ...job, state: 'interrupted', error: 'Host restarted before this download finished; preview and submit again' } : job]));
@@ -24,19 +26,27 @@ function createMediaController({ getToken, getDestinations, onImported, onJobsCh
   };
 
   async function refreshCandidates(force = false) {
-    if (!force && Date.now() - candidateFetchedAt < 60_000) return [...candidates.values()].map(publicCandidate);
-    const token = await getToken('real-debrid');
-    const found = await listImpl(token);
+    if (!force && Date.now() - candidateFetchedAt < 60_000) return { items: [...candidates.values()].map(publicCandidate), warnings: providerWarnings };
+    const [realDebridToken, torboxToken] = await Promise.all([getToken('real-debrid'), getToken('torbox')]);
+    if (!realDebridToken && !torboxToken) throw new Error('Configure Real-Debrid or TorBox on this host first');
+    const sources = [
+      realDebridToken && { name: 'Real-Debrid', load: () => listImpl(realDebridToken) },
+      torboxToken && { name: 'TorBox', load: () => torboxListImpl(torboxToken) }
+    ].filter(Boolean);
+    const results = await Promise.allSettled(sources.map(source => source.load()));
+    if (results.every(result => result.status === 'rejected')) throw new Error(results.map((result, index) => `${sources[index].name}: ${result.reason.message}`).join('; '));
+    const found = results.flatMap(result => result.status === 'fulfilled' ? (Array.isArray(result.value) ? result.value : result.value.items) : []);
+    providerWarnings = results.flatMap((result, index) => result.status === 'rejected' ? [`${sources[index].name}: ${result.reason.message}`] : Array.isArray(result.value) ? [] : result.value.warnings || []);
     candidates = new Map(found.map(item => [item.id, item]));
     candidateFetchedAt = Date.now();
-    return found.map(publicCandidate);
+    return { items: found.map(publicCandidate), warnings: providerWarnings };
   }
 
   async function preview(ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string')) throw new Error('Choose 1–50 account files');
     await refreshCandidates();
     const selected = ids.map(id => candidates.get(id));
-    if (selected.some(item => !item || !item.sourceUrl || !item.sizeBytes)) throw new Error('Selected account file has no ready link or exact size; refresh the account list');
+    if (selected.some(item => !item || (!item.sourceUrl && !item.sourceRef) || !item.sizeBytes)) throw new Error('Selected account file has no ready source or exact size; refresh the account list');
     const placements = await planImpl(selected.map(item => ({ name: item.filename, sizeBytes: item.sizeBytes })), getDestinations(), undefined, undefined, reservedBytes());
     const id = crypto.randomUUID();
     plans.set(id, { selected, placements, createdAt: Date.now() });
@@ -76,7 +86,8 @@ function createMediaController({ getToken, getDestinations, onImported, onJobsCh
         job.state = 'downloading';
         changed();
         try {
-          const result = await downloadImpl({ id: job.id, candidate, placement: { destinationId: job.destinationId, filename: job.filename, sizeBytes: job.sizeBytes, relativePath: job.relativePath }, destination, signal: controller.signal, onProgress: received => { job.receivedBytes = received; changed(); }, onImported });
+          const source = candidate.provider === 'torbox' ? { ...candidate, sourceUrl: await torboxLinkImpl(await getToken('torbox'), candidate.sourceRef) } : candidate;
+          const result = await downloadImpl({ id: job.id, candidate: source, placement: { destinationId: job.destinationId, filename: job.filename, sizeBytes: job.sizeBytes, relativePath: job.relativePath }, destination, signal: controller.signal, onProgress: received => { job.receivedBytes = received; changed(); }, onImported });
           job.state = result.indexed ? 'completed' : 'completed-with-warning';
           job.error = result.warning || null;
           job.receivedBytes = job.sizeBytes;

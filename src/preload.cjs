@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('videostore', {
   configureProvider: (id, token) => ipcRenderer.invoke('provider:configure', id, token),
   configureArtwork: key => ipcRenderer.invoke('artwork:configure', key),
   posterFor: id => ipcRenderer.invoke('artwork:poster', id),
-  mediaCandidates: () => ipcRenderer.invoke('media:candidates'),
+  mediaCandidates: force => ipcRenderer.invoke('media:candidates', Boolean(force)),
   mediaPlan: ids => ipcRenderer.invoke('media:plan', ids),
   mediaSubmit: id => ipcRenderer.invoke('media:submit', id),
   mediaJobs: () => ipcRenderer.invoke('media:jobs'),

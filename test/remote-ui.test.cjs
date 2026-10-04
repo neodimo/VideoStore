@@ -15,7 +15,7 @@ test('laptop client pairs, shows host candidates, and falls back from a missing 
     const responses = {
       '/api/status': { artworkConfigured: true },
       '/api/catalog?q=': [{ id: 'tt1234567', name: 'Example Film', year: 2024, type: 'movie', poster: 'https://images.metahub.space/poster.jpg' }],
-      '/api/candidates': [{ id: 'rd-1', filename: 'Example.Film.2024.2160p.mkv', title: 'Example Film', sizeBytes: 1000, availability: 'Ready', quality: { resolution: '2160p' } }],
+      '/api/candidates': { items: [{ id: 'rd-1', provider: 'real-debrid', filename: 'Example.Film.2024.2160p.mkv', title: 'Example Film', sizeBytes: 1000, availability: 'Ready', quality: { resolution: '2160p' } }, { id: 'tb:torrents:1:0', provider: 'torbox', sourceKind: 'torrents', filename: 'Other.Film.2024.mkv', title: 'Other Film', sizeBytes: 900, availability: 'Ready', quality: {} }], warnings: [] },
       '/api/jobs': [],
       '/api/plan': { planId: 'plan-1', items: [{ filename: 'Example.Film.2024.2160p.mkv', destinationLabel: 'Movies', relativePath: 'Example Film (2024)/Example.Film.2024.2160p.mkv', freeBeforeBytes: 3000, freeAfterBytes: 2000, floorBytes: 1000 }] },
       '/api/submit': { jobIds: ['job-1'] }
@@ -26,6 +26,7 @@ test('laptop client pairs, shows host candidates, and falls back from a missing 
   window.eval(script);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(window.document.querySelector('#catalog .poster-tile')?.dataset.id, 'tt1234567');
+  assert.match(window.document.querySelector('#candidates').textContent, /TorBox torrents/);
   const img = window.document.querySelector('.poster-tile img');
   assert.match(img.src, /\/api\/poster\/tt1234567$/);
   img.dispatchEvent(new window.Event('error'));

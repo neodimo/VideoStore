@@ -31,7 +31,7 @@ async function listDownloads(token, fetchImpl = fetch) {
 }
 
 function publicCandidate(candidate) {
-  const { sourceUrl, ...safe } = candidate;
+  const { sourceUrl, sourceRef, ...safe } = candidate;
   return safe;
 }
 
