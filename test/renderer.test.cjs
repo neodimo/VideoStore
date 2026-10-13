@@ -73,3 +73,29 @@ test('network finder lists verified hosts and connects through the app', async (
   assert.deepEqual(connected, ['192.168.1.25']);
   dom.window.close();
 });
+
+test('Plex import shows source folders before indexing and updates destinations', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/renderer.js'), 'utf8');
+  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
+  let imported = false;
+  dom.window.videostore = {
+    list: async () => ({ items: [], preferences: {} }),
+    storageList: async () => imported ? [{ id: 'plex-1', type: 'movie', label: 'Plex Movies', path: '/plex/Movies', available: true, freeBytes: 2e12, totalBytes: 4e12, reservePercent: 10, reserveBytes: 500 * 2 ** 30, layout: 'movie-folder' }] : [],
+    plexPreview: async () => [{ type: 'movie', name: '<Movies>', path: '/plex/Movies', available: true }],
+    plexImport: async () => { imported = true; return { roots: 1, registered: 1, added: 2, errors: [], cancelled: false }; }
+  };
+  dom.window.eval(script);
+  await new Promise(resolve => setImmediate(resolve));
+  dom.window.document.querySelector('#plex').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(imported, false);
+  assert.match(dom.window.document.querySelector('.storage-panel').textContent, /Import folders & index videos/);
+  assert.equal(dom.window.document.querySelector('.storage-panel Movies'), null);
+  dom.window.document.querySelector('#plex-import').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(imported, true);
+  assert.match(dom.window.document.querySelector('#status').textContent, /2 existing videos indexed/);
+  assert.match(dom.window.document.querySelector('#destination-list').textContent, /Plex Movies/);
+  dom.window.close();
+});

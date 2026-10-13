@@ -15,6 +15,7 @@ const { inferLayout, LAYOUTS } = require('./placement.cjs');
 const { createMediaController } = require('./media-controller.cjs');
 const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
+const { discoverPlexLibraries } = require('./plex.cjs');
 
 const execFileAsync = promisify(execFile);
 let libraryPath;
@@ -86,6 +87,7 @@ async function probe(filePath) {
 async function addFiles(filePaths, options = {}) {
   const added = [];
   const errors = [];
+  const knownPaths = new Set(library.items.map(item => process.platform === 'win32' ? item.path.toLowerCase() : item.path));
   for (const filePath of filePaths) {
     if (options.shouldCancel?.()) break;
     if (!VIDEO_EXTENSIONS.has(path.extname(filePath).toLowerCase())) continue;
@@ -93,7 +95,8 @@ async function addFiles(filePaths, options = {}) {
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) continue;
       const resolved = await fs.realpath(filePath);
-      if (library.items.some(item => item.path === resolved)) continue;
+      const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+      if (knownPaths.has(key)) continue;
       const parsed = parseName(resolved);
       const quality = probeQuality(parsed, options.inspect === false ? null : await probe(resolved), stat.size);
       const item = {
@@ -102,6 +105,7 @@ async function addFiles(filePaths, options = {}) {
       };
       item.rank = score(quality, library.preferences);
       library.items.push(item);
+      knownPaths.add(key);
       added.push(item);
     } catch (error) { errors.push(`${path.basename(filePath)}: ${error.message}`); }
   }
@@ -231,6 +235,34 @@ app.whenReady().then(async () => {
     library.destinations.push(destination);
     await save();
     return destination;
+  });
+  ipcMain.handle('plex:preview', () => discoverPlexLibraries());
+  ipcMain.handle('plex:import', async event => {
+    const roots = await discoverPlexLibraries();
+    const available = roots.filter(root => root.available);
+    if (!available.length) throw new Error('No readable Plex movie or TV folders found on this PC');
+    const errors = roots.filter(root => !root.available).map(root => `${root.name}: ${root.reason}`);
+    let registered = 0;
+    for (const root of available) {
+      const normalized = process.platform === 'win32' ? root.path.toLowerCase() : root.path;
+      if (library.destinations.some(item => item.type === root.type && (process.platform === 'win32' ? item.path.toLowerCase() : item.path) === normalized)) continue;
+      library.destinations.push({ id: crypto.randomUUID(), path: root.path, type: root.type, label: `Plex ${root.name} · ${path.parse(root.path).root || path.basename(root.path)}`, reservePercent: 10, reserveBytes: 500 * GiB, layout: await inferLayout(root.path, root.type) });
+      registered++;
+    }
+    if (registered) await save();
+    scanCancelled = false;
+    let added = 0;
+    for (const [index, root] of available.entries()) {
+      if (scanCancelled) break;
+      event.sender.send('scan:progress', { found: 0, root: root.name, rootIndex: index + 1, rootTotal: available.length });
+      const scan = await scanVideos(root.path, progress => event.sender.send('scan:progress', { ...progress, root: root.name, rootIndex: index + 1, rootTotal: available.length }), () => scanCancelled);
+      errors.push(...scan.errors);
+      if (scan.cancelled) break;
+      const imported = await addFiles(scan.files, { inspect: false, sourceRoot: root.path, shouldCancel: () => scanCancelled });
+      added += imported.added;
+      errors.push(...imported.errors);
+    }
+    return { roots: available.length, registered, added, errors, cancelled: scanCancelled };
   });
   ipcMain.handle('storage:remove', async (_event, id) => {
     library.destinations = library.destinations.filter(item => item.id !== id);

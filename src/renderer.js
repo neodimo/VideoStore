@@ -6,6 +6,8 @@ let catalogQueryTimer;
 let catalogPosterObserver;
 let providers = { secureStorage: false, artwork: { configured: false }, providers: [] };
 let destinations = [];
+let plexRoots = null;
+let plexBusy = false;
 let updateStatus = { state: 'idle' };
 let scanActive = false;
 let mediaCandidates = [];
@@ -80,7 +82,9 @@ function formatSpace(value) { return Number.isFinite(value) ? `${(value / 1_000_
 
 function renderStorage() {
   $('#count').textContent = `${destinations.length} managed folder${destinations.length === 1 ? '' : 's'} · capacity checked on the host OS`;
-  $('#grid').innerHTML = `<div class="provider-panel storage-panel"><h3>Plex library destinations</h3><p>Add existing movie and TV folders. VideoStore does not move or write files during setup. The default free-space floor is the greater of 10% of a drive or 500 GiB; adjust it per folder. Placement previews need an exact file size.</p><div class="detail-actions"><button class="primary" id="add-movie-folder">＋ Movie folder</button><button class="secondary" id="add-tv-folder">＋ TV folder</button></div><div id="destination-list">${destinations.map(item => `<section class="destination"><div><strong>${escapeHtml(item.label)} · ${item.type === 'movie' ? 'Movies' : 'TV'}</strong><small>${escapeHtml(item.path)}</small><small>${item.available ? `${formatSpace(item.freeBytes)} free of ${formatSpace(item.totalBytes)}` : `Unavailable: ${escapeHtml(item.error || 'unknown')}`}</small></div><form class="floor-form" data-id="${escapeHtml(item.id)}"><label>Floor % <input name="percent" type="number" min="0" max="90" step="1" value="${item.reservePercent}"></label><label>Floor GiB <input name="gib" type="number" min="0" max="100000" step="1" value="${Math.round(item.reserveBytes / 1073741824)}"></label><button class="secondary">Save floor</button><button type="button" class="secondary danger remove-folder">Remove</button></form></section>`).join('')}</div><form id="plan-form" class="plan-form"><h3>Preview a placement</h3><select name="type" aria-label="Media type"><option value="movie">Movie</option><option value="tv">TV episode/show</option></select><input name="gigabytes" type="number" min="0.001" step="0.001" placeholder="Exact size in GB" aria-label="File size in decimal GB" required><button class="primary">Preview space</button></form><div id="plan-results"></div></div>`;
+  $('#grid').innerHTML = `<div class="provider-panel storage-panel"><h3>Plex library destinations</h3><p>Add existing movie and TV folders. VideoStore does not move or write files during setup. The default free-space floor is the greater of 10% of a drive or 500 GiB; adjust it per folder. Placement previews need an exact file size.</p><div class="detail-actions"><button class="primary" id="plex-preview" ${plexBusy ? 'disabled' : ''}>Find Plex folders</button><button class="secondary" id="add-movie-folder">＋ Movie folder</button><button class="secondary" id="add-tv-folder">＋ TV folder</button></div>${plexRoots ? `<div class="detail-section"><h3>PLEX FOLDERS ON THIS PC</h3><p>These are read from Plex’s local library database. Import registers the folders as download destinations and indexes existing videos by path; it does not copy, move, or delete media.</p>${plexRoots.map(root => `<div class="fact"><span>${escapeHtml(root.name)} · ${root.type === 'movie' ? 'Movies' : 'TV'}${root.available ? '' : ' · Unavailable'}</span><span>${escapeHtml(root.path)}</span></div>`).join('') || '<div class="notice">No Plex movie or TV folders found.</div>'}${plexRoots.some(root => root.available) ? `<button class="primary" id="plex-import" ${plexBusy ? 'disabled' : ''}>Import folders & index videos</button>` : ''}</div>` : ''}<div id="destination-list">${destinations.map(item => `<section class="destination"><div><strong>${escapeHtml(item.label)} · ${item.type === 'movie' ? 'Movies' : 'TV'}</strong><small>${escapeHtml(item.path)}</small><small>${item.available ? `${formatSpace(item.freeBytes)} free of ${formatSpace(item.totalBytes)}` : `Unavailable: ${escapeHtml(item.error || 'unknown')}`}</small></div><form class="floor-form" data-id="${escapeHtml(item.id)}"><label>Floor % <input name="percent" type="number" min="0" max="90" step="1" value="${item.reservePercent}"></label><label>Floor GiB <input name="gib" type="number" min="0" max="100000" step="1" value="${Math.round(item.reserveBytes / 1073741824)}"></label><button class="secondary">Save floor</button><button type="button" class="secondary danger remove-folder">Remove</button></form></section>`).join('')}</div><form id="plan-form" class="plan-form"><h3>Preview a placement</h3><select name="type" aria-label="Media type"><option value="movie">Movie</option><option value="tv">TV episode/show</option></select><input name="gigabytes" type="number" min="0.001" step="0.001" placeholder="Exact size in GB" aria-label="File size in decimal GB" required><button class="primary">Preview space</button></form><div id="plan-results"></div></div>`;
+  $('#plex-preview').addEventListener('click', loadPlexPreview);
+  $('#plex-import')?.addEventListener('click', importPlex);
   $('#add-movie-folder').addEventListener('click', () => addDestination('movie'));
   $('#add-tv-folder').addEventListener('click', () => addDestination('tv'));
   document.querySelectorAll('.floor-form').forEach(form => {
@@ -106,6 +110,25 @@ function renderStorage() {
       $('#plan-results').innerHTML = plan.results.length ? plan.results.map(item => `<div class="plan-result ${item.eligible ? 'eligible' : 'blocked'}"><strong>${escapeHtml(item.label)}${plan.recommended === item.id ? ' · RECOMMENDED' : ''}</strong><div>${escapeHtml(item.reason)}</div><small>${item.freeBytes != null ? `${formatSpace(item.freeBytes)} now → ${formatSpace(item.afterBytes)} after · floor ${formatSpace(item.floorBytes)}` : 'Capacity unavailable'}</small></div>`).join('') : '<div class="notice">No folders configured for this media type.</div>';
     } catch (error) { status(error.message, true); }
   });
+}
+
+async function loadPlexPreview() {
+  try { plexRoots = await window.videostore.plexPreview(); renderStorage(); }
+  catch (error) { status(`Plex folders unavailable: ${error.message}`, true); }
+}
+
+async function importPlex() {
+  plexBusy = true;
+  scanActive = true;
+  $('#scan-folder').textContent = 'Cancel scan';
+  renderStorage();
+  try {
+    const result = await window.videostore.plexImport();
+    await refresh();
+    destinations = await window.videostore.storageList();
+    status(`${result.added} existing videos indexed from ${result.roots} Plex folders; ${result.registered} new destinations.${result.cancelled ? ' Scan cancelled.' : ''}${result.errors.length ? ` ${result.errors.length} scan warning(s).` : ''}`);
+  } catch (error) { status(`Plex import failed: ${error.message}`, true); }
+  finally { plexBusy = false; scanActive = false; $('#scan-folder').textContent = 'Scan folder'; renderStorage(); }
 }
 
 async function addDestination(type) {
@@ -292,7 +315,8 @@ $('#sort').addEventListener('change', render);
 $('#add').addEventListener('click', add);
 $('#hero-add').addEventListener('click', add);
 $('#scan-folder').addEventListener('click', scanFolder);
-window.videostore.onScanProgress?.(progress => { if (scanActive) status(`${progress.found} video files found…`); });
+$('#plex').addEventListener('click', () => { view = 'storage'; closeDetails(); render(); loadStorage(); loadPlexPreview(); });
+window.videostore.onScanProgress?.(progress => { if (scanActive) status(`${progress.root ? `${progress.root} (${progress.rootIndex}/${progress.rootTotal}) · ` : ''}${progress.found} video files found…`); });
 window.videostore.onMediaJobs?.(jobs => { mediaJobs = jobs; if (view === 'account') renderMedia(); });
 window.videostore.onLanDiscoveryProgress?.(({ done, total }) => {
   if (!discoveryActive || view !== 'network') return;

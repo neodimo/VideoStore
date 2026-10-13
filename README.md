@@ -11,7 +11,7 @@ npm ci
 npm start
 ```
 
-Use **Add videos** to select individual files or **Scan folder** to index an existing tree without moving anything. Folder scans can be cancelled; they skip symlinks and defer `ffprobe` so a large Plex library is not probed file-by-file in one blocking pass. The app stores file paths and inspection data in Electron's local user-data directory; it does not copy video files. **Remove entry** removes only the catalog entry. **Open in default player** delegates playback to the OS player, so HDR and audio passthrough depend on that player, the OS, and connected hardware. No playback-capability claim is inferred from a filename.
+Use **Add videos** to select individual files, **Scan folder** to index an existing tree, or **Use Plex folders** to review Plex Media Server's configured movie/TV roots and import them together. Plex import reads its local SQLite library database read-only, registers readable roots as VideoStore destinations, and indexes existing video paths; it does not move, copy, or delete media or change Plex's database. Repeating it skips already indexed files and registered destinations. Folder scans can be cancelled; they skip symlinks and defer `ffprobe` so a large Plex library is not probed file-by-file in one blocking pass. The app stores file paths and inspection data in Electron's local user-data directory. **Remove entry** removes only the catalog entry. **Open in default player** delegates playback to the OS player, so HDR and audio passthrough depend on that player, the OS, and connected hardware. No playback-capability claim is inferred from a filename.
 
 ## Current scope and honesty rules
 
