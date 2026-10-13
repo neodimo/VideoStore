@@ -1,6 +1,7 @@
 let library = { items: [], preferences: {} };
 let view = 'all';
 let selectedKey = null;
+let librarySelection = {key:null,season:null,offset:0};
 let catalogItems = [];
 let catalogQueryTimer;
 let catalogPosterObserver;
@@ -24,7 +25,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character =>
 const bytes = value => value ? `${(value / 1_073_741_824).toFixed(2)} GB` : 'Unknown';
 const bitrate = value => value ? `${(value / 1_000_000).toFixed(1)} Mb/s` : 'Unknown';
 const duration = value => value ? `${Math.round(value / 60)} min` : 'Unknown';
-const titleKey = item => `${item.type}:${item.plex?.titleKey ? `plex:${item.plex.titleKey}` : `${item.title.toLowerCase()}:${item.year || ''}`}:${item.season ?? ''}:${item.episode ?? ''}`;
+const titleKey = item => window.VideoStoreLibrary.episodeKey(item) + (item.type === 'tv' && item.episode == null ? `:${item.id}` : '');
 
 function groups() {
   const grouped = new Map();
@@ -36,20 +37,6 @@ function groups() {
   return [...grouped].map(([key, items]) => ({ key, items: items.sort((a, b) => b.rank.points - a.rank.points), best: items[0] }));
 }
 
-function filteredGroups() {
-  const query = $('#search').value.trim().toLowerCase();
-  const result = groups().filter(group => {
-    const item = group.best;
-    if (view === 'movie' && item.type !== 'movie') return false;
-    if (view === 'tv' && item.type !== 'tv') return false;
-    if (view === 'watchlist' && !group.items.some(i => i.watchlist)) return false;
-    if (view === 'unwatched' && group.items.every(i => i.watched)) return false;
-    return !query || group.items.some(i => `${i.title} ${i.episodeTitle || ''} ${i.filename} ${i.edition || ''}`.toLowerCase().includes(query));
-  });
-  const sort = $('#sort').value;
-  result.sort((a, b) => sort === 'title' ? a.best.title.localeCompare(b.best.title) : sort === 'recent' ? b.best.addedAt.localeCompare(a.best.addedAt) : b.best.rank.points - a.best.rank.points);
-  return result;
-}
 
 function render() {
   const names = { all: 'Your library', discover: 'Discover', providers: 'Providers', storage: 'Storage', account: 'Account files', network: 'Network host', movie: 'Movies', tv: 'TV shows', watchlist: 'Watchlist', unwatched: 'Unwatched' };
@@ -59,21 +46,34 @@ function render() {
   for (const button of document.querySelectorAll('.nav')) button.classList.toggle('active', button.dataset.view === view);
   $('#sort').hidden = ['discover', 'providers', 'storage', 'account', 'network'].includes(view);
   $('#search').hidden = ['providers', 'storage', 'account', 'network'].includes(view);
+  $('#library-breadcrumbs').hidden = true;
   if (view === 'providers') { renderProviders(); return; }
   if (view === 'storage') { renderStorage(); return; }
   if (view === 'account') { renderMedia(); return; }
   if (view === 'network') { renderNetwork(); return; }
   $('#search').placeholder = view === 'discover' ? 'Search movies and TV shows…' : 'Search titles, files, editions…';
   if (view === 'discover') { renderCatalog(); return; }
-  const found = filteredGroups();
-  $('#count').textContent = `${found.length} title${found.length === 1 ? '' : 's'} · ${library.items.length} file${library.items.length === 1 ? '' : 's'}`;
-  $('#grid').innerHTML = found.length ? found.map(group => {
-    const item = group.best;
-    const episode = item.type === 'tv' ? ` · S${String(item.season).padStart(2, '0')}E${String(item.episode).padStart(2, '0')}` : '';
-    const q = item.quality;
-    return `<button class="tile" data-key="${escapeHtml(group.key)}"><div class="poster"><small>${escapeHtml(item.type === 'tv' ? 'SERIES' : 'MOVIE')}</small><span>${escapeHtml(item.title)}</span></div><div class="tile-info"><strong>${escapeHtml(item.title)}${episode}</strong><p>${escapeHtml(item.year || 'Year unknown')} · ${group.items.length} version${group.items.length === 1 ? '' : 's'} · Local file</p><div class="tags"><span>${escapeHtml(q.resolution || 'Resolution unknown')}</span>${q.hdr ? `<span>${escapeHtml(q.hdr)}</span>` : ''}<span class="${q.probeStatus === 'media probed' ? 'verified' : ''}">${escapeHtml(q.probeStatus)}</span></div></div></button>`;
-  }).join('') : `<div class="empty"><b>${library.items.length ? 'Nothing matches this view' : 'Your collection starts here'}</b><div>${library.items.length ? 'Try a different search or filter.' : 'Add local video files to inspect their real media tracks and compare editions.'}</div>${library.items.length ? '' : '<button class="primary" id="empty-add">＋ Add videos</button>'}</div>`;
-  document.querySelectorAll('.tile').forEach(tile => tile.addEventListener('click', () => showDetails(tile.dataset.key)));
+  const found = window.VideoStoreLibrary.browse(library.items, $('#search').value, librarySelection.offset, 60, {...librarySelection,view,sort:$('#sort').value});
+  $('#count').textContent = `${found.total} ${found.level} · ${library.items.length} files`;
+  $('#library-breadcrumbs').hidden = false;
+  $('#library-breadcrumbs').innerHTML = found.crumbs.map((c,index) => `<button class="secondary" data-crumb="${index}">${escapeHtml(c.label)}</button>`).join(' / ');
+  document.querySelectorAll('[data-crumb]').forEach(b => b.addEventListener('click', () => {const c=found.crumbs[Number(b.dataset.crumb)]; librarySelection={key:c.key,season:c.season,offset:0}; closeDetails();render();}));
+  $('#grid').innerHTML = found.items.length ? found.items.map((item,index) => {
+    const label = item.kind === 'season' ? 'SEASON' : item.kind === 'episode' ? 'EPISODE' : item.type === 'tv' ? 'SERIES' : 'MOVIE';
+    const summary = item.kind === 'season' ? `${item.episodeCount} episodes` : item.kind === 'episode' ? `Episode ${item.episode ?? '?'} · ${item.versionCount} versions` : item.type === 'tv' ? `${item.seasonCount} seasons · ${item.episodeCount} episodes` : `${item.year || 'Year unknown'} · ${item.versionCount} versions`;
+    return `<button class="tile" data-index="${index}" data-key="${escapeHtml(item.detailKey || item.key)}"><div class="poster"><small>${label}</small><span>${escapeHtml(item.title)}</span></div><div class="tile-info"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(summary)}</p></div></button>`;
+  }).join('') : `<div class="empty"><b>${library.items.length ? 'Nothing matches this view' : 'Your collection starts here'}</b><div>Add videos or import the host’s Plex library.</div>${library.items.length ? '' : '<button class="primary" id="empty-add">＋ Add videos</button>'}</div>`;
+  document.querySelectorAll('.tile').forEach(tile => tile.addEventListener('click', () => {
+    const item=found.items[Number(tile.dataset.index)];
+    if (item.kind === 'season') {librarySelection={key:item.key,season:item.season,offset:0};render();}
+    else if (item.type === 'tv' && item.kind === 'title') {librarySelection={key:item.key,season:null,offset:0};render();}
+    else showDetails(item.detailKey);
+  }));
+  if(found.offset || found.offset + found.items.length < found.total) {
+    $('#grid').insertAdjacentHTML('beforeend', `<div class="library-pager"><button class="secondary" id="library-prev" ${found.offset ? '' : 'disabled'}>Previous</button> <span>${found.offset+1}–${found.offset+found.items.length} of ${found.total}</span> <button class="secondary" id="library-next" ${found.offset+found.items.length < found.total ? '' : 'disabled'}>Next</button></div>`);
+    $('#library-prev').onclick=()=>{librarySelection.offset=Math.max(0,found.offset-60);render();};
+    $('#library-next').onclick=()=>{librarySelection.offset=found.offset+60;render();};
+  }
   $('#empty-add')?.addEventListener('click', add);
   if (selectedKey) showDetails(selectedKey);
 }
@@ -82,7 +82,8 @@ function formatSpace(value) { return Number.isFinite(value) ? `${(value / 1_000_
 
 function renderStorage() {
   $('#count').textContent = `${destinations.length} managed folder${destinations.length === 1 ? '' : 's'} · capacity checked on the host OS`;
-  $('#grid').innerHTML = `<div class="provider-panel storage-panel"><h3>Plex library destinations</h3><p>Add existing movie and TV folders. VideoStore does not move or write files during setup. The default free-space floor is the greater of 10% of a drive or 500 GiB; adjust it per folder. Placement previews need an exact file size.</p><div class="detail-actions"><button class="primary" id="plex-preview" ${plexBusy ? 'disabled' : ''}>Find Plex folders</button><button class="secondary" id="add-movie-folder">＋ Movie folder</button><button class="secondary" id="add-tv-folder">＋ TV folder</button></div>${plexRoots ? `<div class="detail-section"><h3>PLEX FOLDERS ON THIS PC</h3><p>These are read from Plex’s local library database. Import registers the folders as download destinations and indexes existing videos by path; it does not copy, move, or delete media.</p>${plexRoots.map(root => `<div class="fact"><span>${escapeHtml(root.name)} · ${root.type === 'movie' ? 'Movies' : 'TV'}${root.available ? '' : ' · Unavailable'}</span><span>${escapeHtml(root.path)}</span></div>`).join('') || '<div class="notice">No Plex movie or TV folders found.</div>'}${plexRoots.some(root => root.available) ? `<button class="primary" id="plex-import" ${plexBusy ? 'disabled' : ''}>Import folders & index videos</button>` : ''}</div>` : ''}<div id="destination-list">${destinations.map(item => `<section class="destination"><div><strong>${escapeHtml(item.label)} · ${item.type === 'movie' ? 'Movies' : 'TV'}</strong><small>${escapeHtml(item.path)}</small><small>${item.available ? `${formatSpace(item.freeBytes)} free of ${formatSpace(item.totalBytes)}` : `Unavailable: ${escapeHtml(item.error || 'unknown')}`}</small></div><form class="floor-form" data-id="${escapeHtml(item.id)}"><label>Floor % <input name="percent" type="number" min="0" max="90" step="1" value="${item.reservePercent}"></label><label>Floor GiB <input name="gib" type="number" min="0" max="100000" step="1" value="${Math.round(item.reserveBytes / 1073741824)}"></label><button class="secondary">Save floor</button><button type="button" class="secondary danger remove-folder">Remove</button></form></section>`).join('')}</div><form id="plan-form" class="plan-form"><h3>Preview a placement</h3><select name="type" aria-label="Media type"><option value="movie">Movie</option><option value="tv">TV episode/show</option></select><input name="gigabytes" type="number" min="0.001" step="0.001" placeholder="Exact size in GB" aria-label="File size in decimal GB" required><button class="primary">Preview space</button></form><div id="plan-results"></div></div>`;
+  $('#grid').innerHTML = `<div class="provider-panel storage-panel"><h3>Plex library destinations</h3><p>Add existing movie and TV folders. VideoStore does not move or write files during setup. The default free-space floor is the greater of 10% of a drive or 500 GiB; adjust it per folder. Placement previews need an exact file size.</p><div class="detail-actions"><button class="secondary" id="plex-refresh">Refresh Plex matches</button><button class="primary" id="plex-preview" ${plexBusy ? 'disabled' : ''}>Find Plex folders</button><button class="secondary" id="add-movie-folder">＋ Movie folder</button><button class="secondary" id="add-tv-folder">＋ TV folder</button></div>${plexRoots ? `<div class="detail-section"><h3>PLEX FOLDERS ON THIS PC</h3><p>These are read from Plex’s local library database. Import registers the folders as download destinations and indexes existing videos by path; it does not copy, move, or delete media.</p>${plexRoots.map(root => `<div class="fact"><span>${escapeHtml(root.name)} · ${root.type === 'movie' ? 'Movies' : 'TV'}${root.available ? '' : ' · Unavailable'}</span><span>${escapeHtml(root.path)}</span></div>`).join('') || '<div class="notice">No Plex movie or TV folders found.</div>'}${plexRoots.some(root => root.available) ? `<button class="primary" id="plex-import" ${plexBusy ? 'disabled' : ''}>Import folders & index videos</button>` : ''}</div>` : ''}<div id="destination-list">${destinations.map(item => `<section class="destination"><div><strong>${escapeHtml(item.label)} · ${item.type === 'movie' ? 'Movies' : 'TV'}</strong><small>${escapeHtml(item.path)}</small><small>${item.available ? `${formatSpace(item.freeBytes)} free of ${formatSpace(item.totalBytes)}` : `Unavailable: ${escapeHtml(item.error || 'unknown')}`}</small></div><form class="floor-form" data-id="${escapeHtml(item.id)}"><label>Floor % <input name="percent" type="number" min="0" max="90" step="1" value="${item.reservePercent}"></label><label>Floor GiB <input name="gib" type="number" min="0" max="100000" step="1" value="${Math.round(item.reserveBytes / 1073741824)}"></label><button class="secondary">Save floor</button><button type="button" class="secondary danger remove-folder">Remove</button></form></section>`).join('')}</div><form id="plan-form" class="plan-form"><h3>Preview a placement</h3><select name="type" aria-label="Media type"><option value="movie">Movie</option><option value="tv">TV episode/show</option></select><input name="gigabytes" type="number" min="0.001" step="0.001" placeholder="Exact size in GB" aria-label="File size in decimal GB" required><button class="primary">Preview space</button></form><div id="plan-results"></div></div>`;
+  $('#plex-refresh').addEventListener('click', () => run(async () => { const result = await window.videostore.plexRefresh(); await refresh(); status(`${result.updated} entries refreshed from Plex; ${result.ambiguous} ambiguous paths left unchanged.`); }, ''));
   $('#plex-preview').addEventListener('click', loadPlexPreview);
   $('#plex-import')?.addEventListener('click', importPlex);
   $('#add-movie-folder').addEventListener('click', () => addDestination('movie'));
@@ -337,8 +338,8 @@ async function scanFolder() {
   finally { scanActive = false; $('#scan-folder').textContent = 'Scan folder'; }
 }
 
-$('#navigation').addEventListener('click', event => { const button = event.target.closest('[data-view]'); if (button) { view = button.dataset.view; closeDetails(); $('#search').value = ''; render(); if (view === 'discover') loadCatalog(); if (view === 'providers') loadProviders(); if (view === 'storage') loadStorage(); if (view === 'account') loadMedia(); if (view === 'network') loadNetwork(); } });
-$('#search').addEventListener('input', () => { if (view === 'discover') { clearTimeout(catalogQueryTimer); catalogQueryTimer = setTimeout(() => loadCatalog($('#search').value), 350); } else render(); });
+$('#navigation').addEventListener('click', event => { const button = event.target.closest('[data-view]'); if (button) { view = button.dataset.view; librarySelection={key:null,season:null,offset:0}; closeDetails(); $('#search').value = ''; render(); if (view === 'discover') loadCatalog(); if (view === 'providers') loadProviders(); if (view === 'storage') loadStorage(); if (view === 'account') loadMedia(); if (view === 'network') loadNetwork(); } });
+$('#search').addEventListener('input', () => { if (view === 'discover') { clearTimeout(catalogQueryTimer); catalogQueryTimer = setTimeout(() => loadCatalog($('#search').value), 350); } else {librarySelection={key:null,season:null,offset:0};render();} });
 $('#sort').addEventListener('change', render);
 $('#add').addEventListener('click', add);
 $('#hero-add').addEventListener('click', add);

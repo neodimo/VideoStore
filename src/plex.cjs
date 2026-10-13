@@ -101,7 +101,7 @@ function readPlexMetadata(databasePath = plexDatabasePath(), platform = process.
       else result.set(key, metadata);
     }
     for (const key of ambiguous) result.delete(key);
-    return { byPath: result, ambiguous: ambiguous.size };
+    return { byPath: result, ambiguous: ambiguous.size, ambiguousPaths: ambiguous };
   } catch (error) {
     throw new Error(`Plex metadata unavailable: ${error.code || error.message}`);
   } finally { database?.close(); }

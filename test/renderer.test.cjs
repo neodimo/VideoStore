@@ -19,6 +19,7 @@ test('library renders grouped versions and opens the quality picker without inje
   });
   items[0].filename = '<img src=x onerror=alert(1)> Series.mkv';
   dom.window.videostore = { list: async () => ({ items, preferences: {} }) };
+  dom.window.eval(fs.readFileSync(path.join(__dirname, '../src/library-model.js'), 'utf8'));
   dom.window.eval(script);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(dom.window.document.querySelectorAll('.tile').length, 1);
@@ -38,6 +39,7 @@ test('discover opens real-ID series metadata with numbered episodes', async () =
     { id: 'tt12345:1:2', season: 1, episode: 2, name: 'Second' }
   ] };
   dom.window.videostore = { list: async () => ({ items: [], preferences: {} }), searchCatalog: async () => [meta], getMeta: async () => meta };
+  dom.window.eval(fs.readFileSync(path.join(__dirname, '../src/library-model.js'), 'utf8'));
   dom.window.eval(script);
   await new Promise(resolve => setImmediate(resolve));
   dom.window.document.querySelector('[data-view="discover"]').click();
@@ -60,6 +62,7 @@ test('network finder lists verified hosts and connects through the app', async (
     lanDiscover: async () => [{ host: '192.168.1.25', name: '<Media PC>', port: 43879 }],
     lanConnect: async host => { connected.push(host); }
   };
+  dom.window.eval(fs.readFileSync(path.join(__dirname, '../src/library-model.js'), 'utf8'));
   dom.window.eval(script);
   await new Promise(resolve => setImmediate(resolve));
   dom.window.document.querySelector('[data-view="network"]').click();
@@ -85,6 +88,7 @@ test('Plex import shows source folders before indexing and updates destinations'
     plexPreview: async () => [{ type: 'movie', name: '<Movies>', path: '/plex/Movies', available: true }],
     plexImport: async () => { imported = true; return { roots: 1, registered: 1, added: 2, errors: [], cancelled: false }; }
   };
+  dom.window.eval(fs.readFileSync(path.join(__dirname, '../src/library-model.js'), 'utf8'));
   dom.window.eval(script);
   await new Promise(resolve => setImmediate(resolve));
   dom.window.document.querySelector('#plex').click();
@@ -97,5 +101,20 @@ test('Plex import shows source folders before indexing and updates destinations'
   assert.equal(imported, true);
   assert.match(dom.window.document.querySelector('#status').textContent, /2 existing videos indexed/);
   assert.match(dom.window.document.querySelector('#destination-list').textContent, /Plex Movies/);
+  dom.window.close();
+});
+
+test('local TV library shows a series once, then seasons and episodes with a persistent rail', async () => {
+  const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'});
+  const items=[1,2].map(n=>{const parsed=parseName(`/library/Show.S01E0${n}.mkv`),quality=probeQuality(parsed,null,1000);return{...parsed,id:String(n),episodeTitle:`Chapter ${n}`,quality,rank:score(quality),addedAt:'2026-01-01'};});
+  dom.window.videostore={list:async()=>({items,preferences:{}})};
+  dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/library-model.js'),'utf8'));
+  dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/renderer.js'),'utf8'));
+  await new Promise(r=>setImmediate(r));const d=dom.window.document;
+  assert.equal(d.querySelectorAll('.tile').length,1);d.querySelector('.tile').click();
+  assert.match(d.querySelector('#grid').textContent,/Season 1/);d.querySelector('.tile').click();
+  assert.equal(d.querySelectorAll('.tile').length,2);assert.match(d.querySelector('#grid').textContent,/Chapter 1/);
+  assert.ok(d.querySelector('#navigation'));assert.equal(d.querySelector('.rail').hidden,false);
+  d.querySelector('[data-crumb="0"]').click();assert.equal(d.querySelectorAll('.tile').length,1);
   dom.window.close();
 });

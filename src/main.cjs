@@ -129,6 +129,7 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1320, height: 850, minWidth: 880, minHeight: 600,
     backgroundColor: '#0b0f18',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true, nodeIntegration: false, sandbox: true
@@ -145,6 +146,7 @@ async function openRemoteWindow(candidate, tunnel = null) {
   const win = new BrowserWindow({
     width: 1320, height: 850, minWidth: 880, minHeight: 600,
     title: `VideoStore · ${candidate.name || candidate.host}`,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#0b0f18',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
@@ -180,7 +182,7 @@ app.whenReady().then(async () => {
   });
   lanServer = createLanServer({
     status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, providers: ['real-debrid', 'torbox'], configuredDestinations: library.destinations.length, libraryFiles: library.items.length }),
-    library: (query, offset, limit) => listHostLibrary(library.items, query, offset, limit),
+    library: (query, offset, limit, selection) => listHostLibrary(library.items, query, offset, limit, selection),
     catalog: searchCatalog,
     candidates: mediaController.refreshCandidates,
     jobs: mediaController.visibleJobs,
@@ -270,6 +272,28 @@ app.whenReady().then(async () => {
     return destination;
   });
   ipcMain.handle('plex:preview', () => discoverPlexLibraries());
+  ipcMain.handle('plex:refresh', async () => {
+    // Refresh already indexed identities without rescanning or stat-ing thousands of files.
+    const metadata = readPlexMetadata();
+    await save();
+    await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`);
+    let matched = 0;
+    let updated = 0;
+    let inferred = 0;
+    for (const item of library.items) {
+      const association = metadata.byPath.get(plexPathKey(item.path));
+      if (association) { matched++; if (applyPlexMetadata(item, association)) updated++; }
+      else if (!item.plex && !metadata.ambiguousPaths.has(plexPathKey(item.path))) {
+        const parsed = parseName(item.filename || item.path);
+        if (parsed.type === 'tv' && (item.type !== 'tv' || item.season !== parsed.season || item.episode !== parsed.episode)) {
+          Object.assign(item, {type:parsed.type,title:parsed.title,season:parsed.season,episode:parsed.episode});
+          inferred++;
+        }
+      }
+    }
+    if (updated || inferred) await save();
+    return { matched, updated, inferred, ambiguous: metadata.ambiguous, files: library.items.length };
+  });
   ipcMain.handle('plex:import', async event => {
     const roots = await discoverPlexLibraries();
     const available = roots.filter(root => root.available);

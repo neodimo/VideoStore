@@ -55,9 +55,9 @@ function createLanServer(handlers, options = {}) {
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (request.method === 'GET' && url.pathname === '/api/identity')
       return send(response, 200, { app: 'videostore', protocol: 1, name: os.hostname() });
-    if (request.method === 'GET' && ['/', '/remote.js', '/remote.css'].includes(url.pathname)) {
+    if (request.method === 'GET' && ['/', '/remote.js', '/remote.css', '/assets/vhs.svg'].includes(url.pathname)) {
       const filename = url.pathname === '/' ? 'remote.html' : url.pathname.slice(1);
-      const mime = filename.endsWith('.html') ? 'text/html' : filename.endsWith('.js') ? 'text/javascript' : 'text/css';
+      const mime = filename.endsWith('.html') ? 'text/html' : filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.svg') ? 'image/svg+xml' : 'text/css';
       const content = await fs.readFile(path.join(root, filename));
       response.writeHead(200, { 'content-type': `${mime}; charset=utf-8`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'self'; img-src 'self' data: https://images.metahub.space; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'" });
       response.end(content);
@@ -83,7 +83,7 @@ function createLanServer(handlers, options = {}) {
     if (!cookie || !sessions.has(cookie) || sessions.get(cookie) < Date.now()) return send(response, 401, { error: 'Pair with the host app first' });
     try {
       if (request.method === 'GET' && url.pathname === '/api/status') return send(response, 200, await handlers.status());
-      if (request.method === 'GET' && url.pathname === '/api/library') return send(response, 200, await handlers.library(url.searchParams.get('q') || '', url.searchParams.get('offset') || '0', url.searchParams.get('limit') || '60'));
+      if (request.method === 'GET' && url.pathname === '/api/library') return send(response, 200, await handlers.library(url.searchParams.get('q') || '', url.searchParams.get('offset') || '0', url.searchParams.get('limit') || '60', {key:url.searchParams.get('key'),season:url.searchParams.get('season'),view:url.searchParams.get('view') || 'all'}));
       if (request.method === 'GET' && url.pathname === '/api/catalog') return send(response, 200, await handlers.catalog(url.searchParams.get('q') || ''));
       if (request.method === 'GET' && url.pathname === '/api/candidates') return send(response, 200, await handlers.candidates(url.searchParams.get('refresh') === '1'));
       if (request.method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, handlers.jobs());

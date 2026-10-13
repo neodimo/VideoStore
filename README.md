@@ -45,3 +45,9 @@ Next increments: live Real-Debrid and TorBox account plus real laptop-to-host ac
 ## Verification
 
 `npm test` covers parsing and ffprobe provenance, Cinemeta, provider-token transport, poster fetching, LAN pairing/session rules, path-free host-library projection, SSH host-key verification and forwarding through a local test server, cart placement, TorBox file-list/link resolution with official-shaped fixtures, host-side download completion/failure, and storage floors. Live Cinemeta search and series metadata calls succeeded on 2026-10-04. A native Windows NSIS installer was built and its packaged GUI, 2:3 poster cards, LAN host, pairing, and authenticated browser route were smoke-tested on the Windows machine. No account-backed download (Real-Debrid or TorBox), actual laptop connection, Plex-drive write, Linux GUI launch, or HDR/Atmos playback has been verified.
+
+## Library navigation
+
+Both the desktop library and the paired media-host window keep navigation visible. Movies are grouped by title; TV shows appear once, then open into seasons (including Specials), episodes, and file versions. Breadcrumbs return to each level. Search finds matching shows without turning episode files into top-level title cards. The paired window has Library, Movies, TV shows, Discover, Account files, Cart, Downloads, and Connection views.
+
+In the host app, **Storage → Refresh Plex matches** backs up the current catalog and refreshes the identities of already indexed paths without rescanning the video folders. Ambiguous Plex associations remain unchanged. Standard `S01E01` and `1x01` episode filename forms are supported when a Plex association is unavailable. The orange VHS icon is used in navigation, application windows, and packaged installers.

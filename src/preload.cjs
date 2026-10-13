@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('videostore', {
   storageLayout: (id, layout) => ipcRenderer.invoke('storage:layout', id, layout),
   storagePlan: (type, fileBytes) => ipcRenderer.invoke('storage:plan', type, fileBytes),
   plexPreview: () => ipcRenderer.invoke('plex:preview'),
+  plexRefresh: () => ipcRenderer.invoke('plex:refresh'),
   plexImport: () => ipcRenderer.invoke('plex:import'),
   getUpdateStatus: () => ipcRenderer.invoke('update:status'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),

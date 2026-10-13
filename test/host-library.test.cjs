@@ -25,7 +25,27 @@ test('Plex identities keep different matches apart and remote search uses episod
   const result = listHostLibrary([{ ...item, id: 'first' }, { ...item, id: 'second' },
     { ...item, id: 'different', plex: { ...item.plex, titleKey: '99' } }], 'special');
   assert.equal(result.total, 2);
-  assert.equal(result.items[0].versions.length, 2);
-  assert.equal(result.items[0].episodeTitle, 'A Special Episode');
+  assert.equal(result.items[0].episodeCount, 1);
+  assert.equal(result.items[0].seasonCount, 1);
+  const episodes = listHostLibrary([item, {...item,id:'second'}], '', 0, 60, {key:result.items[0].key,season:0});
+  assert.equal(episodes.items[0].versions.length, 2);
+  assert.equal(episodes.items[0].title, 'A Special Episode');
   assert.doesNotMatch(JSON.stringify(result), /private|local:\/\/|ratingKey|guid/);
+});
+
+test('series browse drills into ordered seasons and episodes, with duplicate versions kept at the leaf', () => {
+  const episode=(id,season,n,title='Show')=>({id,title,type:'tv',season,episode:n,episodeTitle:`Chapter ${n}`,year:2020,
+    filename:`raw-${id}.mkv`,path:`C:\\private\\${id}.mkv`,plex:{titleKey:'42',guid:'private-guid'},quality:{},rank:{points:1}});
+  const files=[episode('b',2,10),episode('a',1,2),episode('a-alt',1,2),episode('pilot',1,1),episode('special',0,1)];
+  const root=listHostLibrary(files);
+  assert.equal(root.total,1);assert.equal(root.items[0].seasonCount,3);assert.equal(root.items[0].episodeCount,4);
+  assert.doesNotMatch(JSON.stringify(root),/raw-|private|guid|filename/);
+  const key=root.items[0].key;
+  assert.deepEqual(listHostLibrary(files,'',0,60,{key}).items.map(i=>i.title),['Specials','Season 1','Season 2']);
+  const season=listHostLibrary(files,'',0,60,{key,season:1});
+  assert.deepEqual(season.items.map(i=>i.episode),[1,2]);assert.equal(season.items[1].versions.length,2);
+  assert.equal(season.crumbs.length,3);assert.doesNotMatch(JSON.stringify(season),/private|guid/);
+  assert.equal(listHostLibrary(files,'raw-a').items[0].title,'Show');
+  assert.equal(listHostLibrary(files,'',0,60,{view:'movie'}).total,0);
+  assert.equal(listHostLibrary(files,'',0,60,{key:'nonexistent'}).items.length,0);
 });

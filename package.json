@@ -1,6 +1,6 @@
 {
   "name": "videostore",
-  "version": "0.1.0-preview.8",
+  "version": "0.1.0-preview.9",
   "private": true,
   "description": "Local-first video library and honest quality picker",
   "author": {
@@ -46,7 +46,8 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "VideoStore-Setup-${version}-${arch}.${ext}"
+      "artifactName": "VideoStore-Setup-${version}-${arch}.${ext}",
+      "icon": "src/assets/icon.ico"
     },
     "linux": {
       "target": [
@@ -54,7 +55,8 @@
         "deb"
       ],
       "artifactName": "VideoStore-${version}-${arch}.${ext}",
-      "category": "Video"
+      "category": "Video",
+      "icon": "src/assets/icon.png"
     },
     "nsis": {
       "oneClick": false,

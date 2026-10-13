@@ -2,15 +2,27 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>VideoStore · Home host</title><link rel="stylesheet" href="/remote.css"></head>
 <body>
-  <header><div class="brand"><b>▶</b> VIDEO<span>STORE</span></div><div class="host-tag">Connected to your media host</div></header>
+  <aside class="rail"><div class="rail-brand"><img src="/assets/vhs.svg" alt="Orange VHS cassette"><span>VIDEO<span>STORE</span></span></div><small>YOUR MEDIA HOST</small>
+    <nav id="remote-navigation" aria-label="VideoStore navigation">
+      <button data-view="all" class="active">▦ <span>Library</span></button>
+      <button data-view="movie">▣ <span>Movies</span></button>
+      <button data-view="tv">▤ <span>TV shows</span></button>
+      <button data-view="discover">◇ <span>Discover</span></button>
+      <button data-view="account">✧ <span>Account files</span></button>
+      <button data-view="cart">▥ <span>Cart</span></button>
+      <button data-view="jobs">↓ <span>Downloads</span></button>
+      <button data-view="connection">⌁ <span>Connection</span></button>
+    </nav><p class="rail-foot">Connected library<br><small>Media stays on your host.</small></p>
+  </aside>
+  <header><div class="brand"><img src="/assets/vhs.svg" alt=""> VIDEO<span>STORE</span></div><div class="host-tag">Connected to your media host</div></header>
   <main>
     <section id="pairing" class="pairing" hidden><h1>Pair with your media host</h1><p>On the media PC, open VideoStore → Network → Show pairing code, then enter that six-digit code here. Media and debrid links remain on the host.</p><form id="pair-form"><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" aria-label="Six-digit pairing code" placeholder="000000" required><button>Pair this computer</button></form></section>
     <section id="workspace" hidden>
-      <div class="intro"><div><small>YOUR MEDIA HOST</small><h1>Choose here. Download there.</h1><p>Browse titles, choose a file already listed in your Real-Debrid or TorBox account, and send an explicit placement plan to the host. The laptop never receives a debrid link or media bytes.</p></div><div class="pill">Host connected</div></div>
-      <section class="host-library"><div class="heading"><div><small>ON YOUR MEDIA PC</small><h2>Host library <span id="library-count"></span></h2></div><input id="library-search" type="search" placeholder="Search your Plex collection…" aria-label="Search host library"></div><div id="host-library" class="library-grid"></div><div class="library-footer"><button id="library-more" class="subtle" hidden>Show more</button></div></section>
+      <div class="intro" id="connection-panel" hidden><div><small>YOUR MEDIA HOST</small><h1>Choose here. Download there.</h1><p>Browse titles, choose a file already listed in your Real-Debrid or TorBox account, and send an explicit placement plan to the host. The laptop never receives a debrid link or media bytes.</p></div><div class="pill">Host connected</div></div>
+      <section class="host-library"><div class="heading"><div><small>ON YOUR MEDIA PC</small><h2>Host library <span id="library-count"></span></h2></div><input id="library-search" type="search" placeholder="Search your Plex collection…" aria-label="Search host library"></div><nav id="library-crumbs" aria-label="Library breadcrumbs"></nav><div id="host-library" class="library-grid"></div><div class="library-footer"><button id="library-more" class="subtle" hidden>Show more</button></div></section>
       <div class="columns">
-        <section class="browse"><div class="heading"><div><small>DISCOVER</small><h2>Find something new</h2></div><input id="catalog-search" type="search" placeholder="Search titles…" aria-label="Search titles"></div><div id="catalog" class="poster-grid"></div></section>
-        <aside class="side"><section class="card"><small>ACCOUNT FILES</small><h2>Real-Debrid + TorBox</h2><p>Only files already listed by a connected account appear here. Filename quality is tentative until the host inspects the download.</p><input id="candidate-search" type="search" placeholder="Filter account files…" aria-label="Filter account files"><div id="candidates"></div><button id="refresh-candidates" class="subtle">Refresh account files</button></section><section class="card"><small>DESTINATION PREVIEW</small><h2>Cart <span id="cart-count">0</span></h2><div id="cart"></div><button id="preview" disabled>Preview space & folders</button><div id="plan"></div><button id="submit" hidden>Send to host</button></section><section class="card"><small>HOST ACTIVITY</small><h2>Downloads</h2><div id="jobs"></div></section></aside>
+        <section class="browse" id="discover-panel" hidden><div class="heading"><div><small>DISCOVER</small><h2>Find something new</h2></div><input id="catalog-search" type="search" placeholder="Search titles…" aria-label="Search titles"></div><div id="catalog" class="poster-grid"></div></section>
+        <aside class="side"><section class="card" id="account-panel" hidden><small>ACCOUNT FILES</small><h2>Real-Debrid + TorBox</h2><p>Only files already listed by a connected account appear here. Filename quality is tentative until the host inspects the download.</p><input id="candidate-search" type="search" placeholder="Filter account files…" aria-label="Filter account files"><div id="candidates"></div><button id="refresh-candidates" class="subtle">Refresh account files</button></section><section class="card" id="cart-panel" hidden><small>DESTINATION PREVIEW</small><h2>Cart <span id="cart-count">0</span></h2><div id="cart"></div><button id="preview" disabled>Preview space & folders</button><div id="plan"></div><button id="submit" hidden>Send to host</button></section><section class="card" id="jobs-panel" hidden><small>HOST ACTIVITY</small><h2>Downloads</h2><div id="jobs"></div></section></aside>
       </div>
     </section>
     <p id="notice" role="status"></p>

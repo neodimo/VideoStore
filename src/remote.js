@@ -8,6 +8,8 @@ let plan = null;
 let hostStatus = {};
 let catalogTimer;
 let libraryTimer;
+let librarySelection = { key: null, season: null, view: "all" };
+let libraryRequest = 0;
 let hostLibrary = { items: [], total: 0, offset: 0 };
 
 async function api(route, options = {}) {
@@ -21,29 +23,62 @@ function notice(message, error = false) { $('#notice').textContent = message; $(
 function showPairing() { $('#pairing').hidden = false; $('#workspace').hidden = true; }
 function showWorkspace() { $('#pairing').hidden = true; $('#workspace').hidden = false; }
 
+function setView(view) {
+  document.querySelectorAll('#remote-navigation button').forEach(b => { b.classList.toggle('active', b.dataset.view === view); if(b.dataset.view === view) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+  const libraryView = ['all','movie','tv'].includes(view);
+  $('.host-library').hidden = !libraryView;
+  $('#discover-panel').hidden = view !== 'discover';
+  $('#account-panel').hidden = view !== 'account';
+  $('#cart-panel').hidden = view !== 'cart';
+  $('#jobs-panel').hidden = view !== 'jobs';
+  $('#connection-panel').hidden = view !== 'connection';
+  if (libraryView) { librarySelection = {key:null,season:null,view}; loadHostLibrary(); }
+  if (view === 'jobs') loadJobs();
+}
+function navigateLibrary(key = null, season = null) {
+  librarySelection = {...librarySelection,key,season};
+  loadHostLibrary();
+}
 function renderHostLibrary() {
-  $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} title${hostLibrary.total === 1 ? '' : 's'}`;
-  $('#host-library').innerHTML = hostLibrary.items.length ? hostLibrary.items.map(item => {
-    const best = item.versions[0];
-    const episode = item.type === 'tv' && item.season != null && item.episode != null ? ` · S${String(item.season).padStart(2, '0')}E${String(item.episode).padStart(2, '0')}` : '';
-    return `<article class="library-tile"><div class="library-art">${escapeHtml(item.type === 'tv' ? 'SERIES' : 'MOVIE')}</div><div class="library-info"><b>${escapeHtml(item.title)}${episode}</b><small>${escapeHtml(item.year || 'Year unknown')} · ${item.versions.length} version${item.versions.length === 1 ? '' : 's'} · ${escapeHtml(best.resolution || 'Resolution unknown')}${best.hdr ? ` · ${escapeHtml(best.hdr)}` : ''}</small><small>${escapeHtml(best.filename)}</small></div></article>`;
+  const label = {titles:'titles',seasons:'seasons',episodes:'episodes',versions:'versions'}[hostLibrary.level] || 'titles';
+  $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} ${label}`;
+  const crumbs = hostLibrary.crumbs || [{label:'Library',key:null,season:null}];
+  $('#library-crumbs').innerHTML = crumbs.map((c,index) => `<button class="subtle" data-crumb="${index}" ${index === crumbs.length - 1 ? 'aria-current="page"' : ''}>${escapeHtml(c.label)}</button>`).join('<span aria-hidden="true"> / </span>');
+  document.querySelectorAll('[data-crumb]').forEach(b => b.addEventListener('click', () => { const c = crumbs[Number(b.dataset.crumb)]; navigateLibrary(c.key,c.season); }));
+  $('#host-library').innerHTML = hostLibrary.items.length ? hostLibrary.items.map((item,index) => {
+    if (hostLibrary.level === 'versions') return `<article class="version-row"><b>${escapeHtml(item.filename)}</b><small>${escapeHtml(item.resolution || 'Resolution unknown')} · ${size(item.sizeBytes)} · ${escapeHtml(item.probeStatus || 'Not inspected')}</small></article>`;
+    const kind = item.kind || 'title';
+    const summary = kind === 'season' ? `${item.episodeCount} episodes` : kind === 'episode' ? `Episode ${item.episode ?? '?'} · ${item.versionCount} versions` : item.type === 'tv' ? `${item.seasonCount} seasons · ${item.episodeCount} episodes` : `${item.year || 'Year unknown'} · ${item.versionCount || item.versions?.length || 1} versions`;
+    const badge = kind === 'season' ? 'SEASON' : kind === 'episode' ? 'EPISODE' : item.type === 'tv' ? 'SERIES' : 'MOVIE';
+    return `<article class="library-tile"><button class="library-open" data-index="${index}"><div class="library-art">${badge}</div><div class="library-info"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(summary)}</small></div></button>${kind === 'episode' ? `<div class="episode-versions" hidden>${item.versions.map(v => `<div class="version-row"><b>${escapeHtml(v.filename)}</b><small>${escapeHtml(v.resolution || 'Resolution unknown')} · ${size(v.sizeBytes)} · ${escapeHtml(v.probeStatus || 'Not inspected')}</small></div>`).join('')}</div>` : ''}</article>`;
   }).join('') : '<p class="empty">No matching titles on the media PC. Import its Plex folders in the host app if the library is empty.</p>';
+  document.querySelectorAll('.library-open').forEach(button => button.addEventListener('click', () => {
+    const item = hostLibrary.items[Number(button.dataset.index)];
+    if (item.kind === 'episode') { const panel = button.parentElement.querySelector('.episode-versions'); panel.hidden = !panel.hidden; button.setAttribute('aria-expanded', String(!panel.hidden)); }
+    else navigateLibrary(item.key, item.kind === 'season' ? item.season : null);
+  }));
   $('#library-more').hidden = hostLibrary.items.length >= hostLibrary.total;
 }
-
 async function loadHostLibrary(more = false) {
+  const request = ++libraryRequest;
   try {
     const offset = more ? hostLibrary.items.length : 0;
-    const result = await api(`/api/library?q=${encodeURIComponent($('#library-search').value.trim())}&offset=${offset}&limit=60`);
-    hostLibrary = { ...result, items: more ? [...hostLibrary.items, ...result.items] : result.items };
+    const params = new URLSearchParams({q:$('#library-search').value.trim(),offset:String(offset),limit:'60'});
+    if (librarySelection.key) params.set('key',librarySelection.key);
+    if (librarySelection.season != null) params.set('season',String(librarySelection.season));
+    if (librarySelection.view !== 'all') params.set('view',librarySelection.view);
+    const result = await api(`/api/library?${params}`);
+    if (request !== libraryRequest) return;
+    hostLibrary = {...result,items:more ? [...hostLibrary.items,...result.items] : result.items};
     renderHostLibrary();
-  } catch (error) { $('#host-library').innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; }
+  } catch(error) { if (request === libraryRequest) $('#host-library').innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; }
 }
 
 function renderCatalog() {
   $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong>${escapeHtml(item.name)}</strong>${item.poster ? `<img alt="" loading="lazy" src="${escapeHtml(item.poster)}">` : ''}</div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')} · ${item.type === 'series' ? 'Series' : 'Movie'}</p><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
   document.querySelectorAll('.poster-tile').forEach(tile => tile.querySelector('button').addEventListener('click', () => {
     const item = catalog.find(row => row.id === tile.dataset.id);
+    setView('account');
     $('#candidate-search').value = item.name;
     renderCandidates();
     $('#candidate-search').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -93,7 +128,8 @@ async function loadJobs() {
 
 $('#pair-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/pair', { method: 'POST', body: JSON.stringify({ code: event.currentTarget.elements.code.value }) }); showWorkspace(); await initialize(); } catch (error) { notice(error.message, true); } });
 $('#catalog-search').addEventListener('input', () => { clearTimeout(catalogTimer); catalogTimer = setTimeout(() => loadCatalog($('#catalog-search').value), 350); });
-$('#library-search').addEventListener('input', () => { clearTimeout(libraryTimer); libraryTimer = setTimeout(() => loadHostLibrary(), 300); });
+$('#library-search').addEventListener('input', () => { librarySelection.key=null; librarySelection.season=null; clearTimeout(libraryTimer); libraryTimer=setTimeout(() => loadHostLibrary(),300); });
+$('#remote-navigation').addEventListener('click', e => { const b=e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
 $('#library-more').addEventListener('click', () => loadHostLibrary(true));
 $('#candidate-search').addEventListener('input', renderCandidates);
 $('#refresh-candidates').addEventListener('click', () => loadCandidates(true));

@@ -6,7 +6,7 @@ const clean = value => value.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim();
 function parseName(filePath) {
   const filename = path.basename(filePath);
   const stem = filename.slice(0, -path.extname(filename).length);
-  const episode = stem.match(/\bS(\d{1,2})[ ._-]*E(\d{1,3})\b/i);
+  const episode = stem.match(/\bS(\d{1,2})[ ._-]*E(\d{1,3})\b/i) || stem.match(/\b(\d{1,2})x(\d{1,3})\b/i);
   const year = stem.match(/(?:^|[ ._(])((?:19|20)\d{2})(?=[ ._)\-]|$)/);
   const technical = stem.search(/\b(?:2160p|1080p|720p|480p|BluRay|WEB[ ._-]?DL|REMUX|Director'?s[ ._-]?Cut|Extended|Theatrical|Ultimate|Unrated|IMAX)\b/i);
   const boundary = [episode?.index, year?.index, technical].filter(index => index != null && index > 0).sort((a, b) => a - b)[0];
