@@ -53,6 +53,8 @@ function createLanServer(handlers, options = {}) {
   async function handle(request, response) {
     if (!trustedHost(request.headers.host)) return send(response, 403, { error: 'Host address is not a trusted private-network address' });
     const url = new URL(request.url, `http://${request.headers.host}`);
+    if (request.method === 'GET' && url.pathname === '/api/identity')
+      return send(response, 200, { app: 'videostore', protocol: 1, name: os.hostname() });
     if (request.method === 'GET' && ['/', '/remote.js', '/remote.css'].includes(url.pathname)) {
       const filename = url.pathname === '/' ? 'remote.html' : url.pathname.slice(1);
       const mime = filename.endsWith('.html') ? 'text/html' : filename.endsWith('.js') ? 'text/javascript' : 'text/css';

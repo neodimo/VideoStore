@@ -48,3 +48,28 @@ test('discover opens real-ID series metadata with numbered episodes', async () =
   assert.match(dom.window.document.querySelector('#details').textContent, /S01E02 · Second/);
   dom.window.close();
 });
+
+test('network finder lists verified hosts and connects through the app', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '../src/renderer.js'), 'utf8');
+  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'http://localhost/' });
+  const connected = [];
+  dom.window.videostore = {
+    list: async () => ({ items: [], preferences: {} }),
+    lanStatus: async () => ({ running: false, addresses: [], port: 43879 }),
+    lanDiscover: async () => [{ host: '192.168.1.25', name: '<Media PC>', port: 43879 }],
+    lanConnect: async host => { connected.push(host); }
+  };
+  dom.window.eval(script);
+  await new Promise(resolve => setImmediate(resolve));
+  dom.window.document.querySelector('[data-view="network"]').click();
+  await new Promise(resolve => setImmediate(resolve));
+  dom.window.document.querySelector('#lan-scan').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(dom.window.document.querySelector('#lan-hosts').textContent, /Media PC/);
+  assert.equal(dom.window.document.querySelector('#lan-hosts Media'), null);
+  dom.window.document.querySelector('.lan-connect').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(connected, ['192.168.1.25']);
+  dom.window.close();
+});

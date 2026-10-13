@@ -9,6 +9,7 @@ test('LAN browser requires local host, same-origin pairing, and session before c
   try {
     assert.equal(trustedHost(`192.168.1.25:${port}`), true);
     assert.equal(trustedHost('evil.example:43879'), false);
+    assert.deepEqual(await (await fetch(`${base}/api/identity`)).json(), { app: 'videostore', protocol: 1, name: require('node:os').hostname() });
     assert.equal((await fetch(`${base}/api/status`)).status, 401);
     assert.equal((await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: '{invalid' })).status, 400);
     assert.equal((await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://evil.example' }, body: JSON.stringify({ code: server.pairCode().code }) })).status, 403);

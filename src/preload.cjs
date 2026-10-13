@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld('videostore', {
   lanStart: () => ipcRenderer.invoke('lan:start'),
   lanStop: () => ipcRenderer.invoke('lan:stop'),
   lanPairCode: () => ipcRenderer.invoke('lan:pairCode'),
+  lanDiscover: () => ipcRenderer.invoke('lan:discover'),
+  lanConnect: host => ipcRenderer.invoke('lan:connect', host),
+  onLanDiscoveryProgress: callback => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('lan:discoveryProgress', handler);
+    return () => ipcRenderer.removeListener('lan:discoveryProgress', handler);
+  },
   storageList: () => ipcRenderer.invoke('storage:list'),
   storageAdd: (type, label) => ipcRenderer.invoke('storage:add', type, label),
   storageRemove: id => ipcRenderer.invoke('storage:remove', id),

@@ -14,6 +14,9 @@ let mediaCart = [];
 let mediaPlan = null;
 let mediaJobs = [];
 let lanState = { running: false, addresses: [], port: 43879 };
+let discoveredHosts = [];
+let discoveryStatus = '';
+let discoveryActive = false;
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const bytes = value => value ? `${(value / 1_073_741_824).toFixed(2)} GB` : 'Unknown';
@@ -137,9 +140,17 @@ async function loadMedia(force = false) {
 }
 
 function renderNetwork() {
-  $('#count').textContent = lanState.running ? 'This machine is accepting paired laptop clients on your private network.' : 'Network host is off; local VideoStore still works.';
+  $('#count').textContent = 'Find a media PC and connect from this app, or allow this PC to receive connections.';
   const links = (lanState.addresses || []).map(address => `http://${address}:${lanState.port || 43879}`);
-  $('#grid').innerHTML = `<div class="provider-panel"><h3>Use VideoStore from your laptop</h3><p>Start the host here, then open one of these addresses in your laptop browser on the same private network. Pair with a short-lived code shown only on this machine. The laptop sends selections; provider links, credentials, downloads, and media files stay on this machine.</p><div class="notice">LAN mode uses HTTP on a trusted private network. Do not port-forward it to the Internet. Keep this app running while you use the laptop client.</div><div class="detail-actions"><button class="primary" id="lan-toggle">${lanState.running ? 'Stop network host' : 'Start network host'}</button>${lanState.running ? '<button class="secondary" id="lan-code">Show pairing code</button>' : ''}</div>${lanState.running ? `<div class="detail-section"><h3>LAPTOP ADDRESS</h3>${links.length ? links.map(link => `<div class="fact"><span>Open in laptop browser</span><span>${escapeHtml(link)}</span></div>`).join('') : '<div class="notice">No private-network IPv4 address detected. Check this machine’s network connection.</div>'}${lanState.pairing ? `<div class="notice">Pairing code: <strong>${escapeHtml(lanState.pairing.code)}</strong> · expires ${escapeHtml(new Date(lanState.pairing.expiresAt).toLocaleTimeString())}</div>` : ''}</div>` : ''}</div>`;
+  $('#grid').innerHTML = `<div class="provider-panel"><h3>Connect to your media PC</h3><p>Install VideoStore on both computers. On the media PC, enable connections below. Then scan from the laptop, choose the media PC, and pair with the code shown on the media PC.</p><div class="detail-actions"><button class="primary" id="lan-scan" ${discoveryActive ? 'disabled' : ''}>${discoveryActive ? 'Scanning…' : 'Scan network'}</button><span id="lan-scan-status">${escapeHtml(discoveryStatus)}</span></div><div id="lan-hosts">${discoveredHosts.map(item => `<button class="secondary lan-connect" data-host="${escapeHtml(item.host)}">${escapeHtml(item.name)} · ${escapeHtml(item.host)}</button>`).join('')}</div><form id="lan-manual" class="provider-form"><label>Address fallback <input name="host" inputmode="decimal" placeholder="192.168.1.25" aria-label="Media PC address"></label><button class="secondary">Connect</button></form><h3>Allow connections to this PC</h3><p>${lanState.running ? 'This PC is available to paired VideoStore clients while the app runs.' : 'Connections are off. Enable them on the PC that holds your Plex folders and provider tokens.'} Downloads and provider links stay on that PC.</p><div class="notice">Uses HTTP on a trusted private network. Do not port-forward it to the Internet.</div><div class="detail-actions"><button class="secondary" id="lan-toggle">${lanState.running ? 'Disable connections' : 'Enable connections'}</button>${lanState.running ? '<button class="secondary" id="lan-code">Show pairing code</button>' : ''}</div>${lanState.running ? `<div class="detail-section">${lanState.pairing ? `<div class="notice">Pairing code: <strong>${escapeHtml(lanState.pairing.code)}</strong> · expires ${escapeHtml(new Date(lanState.pairing.expiresAt).toLocaleTimeString())}</div>` : ''}<details><summary>Browser address fallback</summary>${links.length ? links.map(link => `<div class="fact"><span>Media PC address</span><span>${escapeHtml(link)}</span></div>`).join('') : 'No private-network IPv4 address detected.'}</details></div>` : ''}</div>`;
+  $('#lan-scan').addEventListener('click', async () => {
+    discoveryActive = true; discoveryStatus = 'Scanning the local network…'; renderNetwork();
+    try { discoveredHosts = await window.videostore.lanDiscover(); discoveryStatus = discoveredHosts.length ? `${discoveredHosts.length} VideoStore host${discoveredHosts.length === 1 ? '' : 's'} found` : 'No VideoStore host found. Enable connections on the media PC or enter its address below.'; }
+    catch (error) { discoveryStatus = error.message; }
+    finally { discoveryActive = false; renderNetwork(); }
+  });
+  document.querySelectorAll('.lan-connect').forEach(button => button.addEventListener('click', () => run(() => window.videostore.lanConnect(button.dataset.host), 'Media PC opened. Enter its pairing code if prompted.')));
+  $('#lan-manual').addEventListener('submit', event => { event.preventDefault(); run(() => window.videostore.lanConnect(event.currentTarget.elements.host.value.trim()), 'Media PC opened. Enter its pairing code if prompted.'); });
   $('#lan-toggle').addEventListener('click', () => run(async () => { lanState = lanState.running ? await window.videostore.lanStop() : await window.videostore.lanStart(); renderNetwork(); }, lanState.running ? 'Network host stopped.' : 'Network host started.'));
   $('#lan-code')?.addEventListener('click', () => run(async () => { lanState.pairing = await window.videostore.lanPairCode(); renderNetwork(); }, 'Pairing code refreshed.'));
 }
@@ -283,6 +294,11 @@ $('#hero-add').addEventListener('click', add);
 $('#scan-folder').addEventListener('click', scanFolder);
 window.videostore.onScanProgress?.(progress => { if (scanActive) status(`${progress.found} video files found…`); });
 window.videostore.onMediaJobs?.(jobs => { mediaJobs = jobs; if (view === 'account') renderMedia(); });
+window.videostore.onLanDiscoveryProgress?.(({ done, total }) => {
+  if (!discoveryActive || view !== 'network') return;
+  const label = document.querySelector('#lan-scan-status');
+  if (label) label.textContent = `Scanning local network · ${done}/${total}`;
+});
 $('#update').addEventListener('click', () => run(async () => {
   if (updateStatus.state === 'available') await window.videostore.downloadUpdate();
   else if (updateStatus.state === 'ready') await window.videostore.restartToUpdate();

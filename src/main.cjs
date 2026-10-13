@@ -14,6 +14,7 @@ const { ratingPoster } = require('./posters.cjs');
 const { inferLayout, LAYOUTS } = require('./placement.cjs');
 const { createMediaController } = require('./media-controller.cjs');
 const { createLanServer } = require('./lan.cjs');
+const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
 
 const execFileAsync = promisify(execFile);
 let libraryPath;
@@ -22,6 +23,7 @@ let connectedProviders = {};
 let scanCancelled = false;
 let mediaController;
 let lanServer;
+let remoteWindow;
 let saveChain = Promise.resolve();
 const posterPending = new Map();
 let library = { version: 1, items: [], destinations: [], jobs: [], lanEnabled: false, preferences: { hdr: true, surround: true, highBitrate: true } };
@@ -123,6 +125,28 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, 'index.html'));
 }
 
+async function openRemoteWindow(candidate) {
+  const origin = `http://${candidate.host}:${candidate.port}`;
+  if (remoteWindow && !remoteWindow.isDestroyed()) remoteWindow.close();
+  const win = new BrowserWindow({
+    width: 1320, height: 850, minWidth: 880, minHeight: 600,
+    title: `VideoStore · ${candidate.name || candidate.host}`,
+    backgroundColor: '#0b0f18',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  remoteWindow = win;
+  win.on('closed', () => { if (remoteWindow === win) remoteWindow = null; });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event, target) => {
+    if (!target.startsWith(`${origin}/`)) event.preventDefault();
+  });
+  win.webContents.on('will-redirect', (event, target) => {
+    if (!target.startsWith(`${origin}/`)) event.preventDefault();
+  });
+  await win.loadURL(origin);
+  return true;
+}
+
 app.whenReady().then(async () => {
   configureUpdater();
   libraryPath = path.join(app.getPath('userData'), 'library.json');
@@ -177,10 +201,16 @@ app.whenReady().then(async () => {
   ipcMain.handle('media:submit', (_event, id) => mediaController.submit(id));
   ipcMain.handle('media:jobs', () => mediaController.visibleJobs());
   ipcMain.handle('media:cancel', (_event, id) => mediaController.cancel(id));
-  ipcMain.handle('lan:status', () => ({ running: lanServer.running(), addresses: lanServer.addresses(), port: 43879 }));
+  ipcMain.handle('lan:status', () => ({ running: lanServer.running(), addresses: lanServer.addresses(), port: PORT }));
   ipcMain.handle('lan:start', async () => { const result = await lanServer.start(); library.lanEnabled = true; await save(); return { ...result, running: true, pairing: lanServer.pairCode() }; });
   ipcMain.handle('lan:stop', async () => { await lanServer.stop(); library.lanEnabled = false; await save(); return { running: false }; });
   ipcMain.handle('lan:pairCode', () => { if (!lanServer.running()) throw new Error('Network host is not running'); return lanServer.pairCode(); });
+  ipcMain.handle('lan:discover', event => discoverHosts({ onProgress: (done, total) => event.sender.send('lan:discoveryProgress', { done, total }) }));
+  ipcMain.handle('lan:connect', async (_event, host) => {
+    const candidate = await probeHost(host);
+    if (!candidate) throw new Error('No VideoStore media host answered at that address');
+    return openRemoteWindow(candidate);
+  });
   ipcMain.handle('storage:list', async () => {
     const results = [];
     for (const destination of library.destinations) {
