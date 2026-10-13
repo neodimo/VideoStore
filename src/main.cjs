@@ -16,6 +16,8 @@ const { createMediaController } = require('./media-controller.cjs');
 const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
 const { discoverPlexLibraries } = require('./plex.cjs');
+const { listHostLibrary } = require('./host-library.cjs');
+const { openSshTunnel, validateConfig } = require('./ssh-tunnel.cjs');
 
 const execFileAsync = promisify(execFile);
 let libraryPath;
@@ -27,7 +29,7 @@ let lanServer;
 let remoteWindow;
 let saveChain = Promise.resolve();
 const posterPending = new Map();
-let library = { version: 1, items: [], destinations: [], jobs: [], lanEnabled: false, preferences: { hdr: true, surround: true, highBitrate: true } };
+let library = { version: 1, items: [], destinations: [], jobs: [], lanEnabled: false, sshKnownHosts: {}, preferences: { hdr: true, surround: true, highBitrate: true } };
 
 function save() {
   const snapshot = JSON.stringify(library, null, 2);
@@ -129,7 +131,7 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, 'index.html'));
 }
 
-async function openRemoteWindow(candidate) {
+async function openRemoteWindow(candidate, tunnel = null) {
   const origin = `http://${candidate.host}:${candidate.port}`;
   if (remoteWindow && !remoteWindow.isDestroyed()) remoteWindow.close();
   const win = new BrowserWindow({
@@ -139,7 +141,7 @@ async function openRemoteWindow(candidate) {
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   remoteWindow = win;
-  win.on('closed', () => { if (remoteWindow === win) remoteWindow = null; });
+  win.on('closed', () => { tunnel?.close(); if (remoteWindow === win) remoteWindow = null; });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, target) => {
     if (!target.startsWith(`${origin}/`)) event.preventDefault();
@@ -147,7 +149,7 @@ async function openRemoteWindow(candidate) {
   win.webContents.on('will-redirect', (event, target) => {
     if (!target.startsWith(`${origin}/`)) event.preventDefault();
   });
-  await win.loadURL(origin);
+  try { await win.loadURL(origin); } catch (error) { win.close(); throw error; }
   return true;
 }
 
@@ -169,7 +171,8 @@ app.whenReady().then(async () => {
     onJobsChanged: jobs => { library.jobs = jobs; void save().catch(error => console.error('Job state save failed:', error.message)); for (const window of BrowserWindow.getAllWindows()) window.webContents.send('media:jobs', jobs); }
   });
   lanServer = createLanServer({
-    status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, providers: ['real-debrid', 'torbox'], configuredDestinations: library.destinations.length }),
+    status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, providers: ['real-debrid', 'torbox'], configuredDestinations: library.destinations.length, libraryFiles: library.items.length }),
+    library: (query, offset, limit) => listHostLibrary(library.items, query, offset, limit),
     catalog: searchCatalog,
     candidates: mediaController.refreshCandidates,
     jobs: mediaController.visibleJobs,
@@ -214,6 +217,28 @@ app.whenReady().then(async () => {
     const candidate = await probeHost(host);
     if (!candidate) throw new Error('No VideoStore media host answered at that address');
     return openRemoteWindow(candidate);
+  });
+  ipcMain.handle('ssh:connect', async (_event, input) => {
+    const config = validateConfig(input || {});
+    const identity = `${config.host.toLowerCase()}:${config.port}`;
+    const known = library.sshKnownHosts?.[identity];
+    let tunnel;
+    try { tunnel = await openSshTunnel(input, known || input.trustFingerprint); }
+    catch (error) {
+      if (error.code === 'SSH_TRUST_REQUIRED') return { trustRequired: true, fingerprint: error.fingerprint };
+      throw error;
+    }
+    try {
+      const candidate = await probeHost('127.0.0.1', { port: tunnel.port, timeoutMs: 3000, allowLoopback: true });
+      if (!candidate) throw new Error('SSH connected, but VideoStore is not running at the forwarded host address');
+      await openRemoteWindow(candidate, tunnel);
+      if (!known) {
+        library.sshKnownHosts ||= {};
+        library.sshKnownHosts[identity] = tunnel.fingerprint;
+        await save();
+      }
+      return { connected: true, name: candidate.name };
+    } catch (error) { tunnel.close(); throw error; }
   });
   ipcMain.handle('storage:list', async () => {
     const results = [];

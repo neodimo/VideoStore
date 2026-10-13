@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createLanServer, trustedHost } = require('../src/lan.cjs');
 
 test('LAN browser requires local host, same-origin pairing, and session before cart operations', async () => {
-  const server = createLanServer({ status: async () => ({ provider: 'real-debrid' }), catalog: async () => [], candidates: async () => [], jobs: () => [], plan: async ids => ({ items: ids }), submit: async () => ['job-1'], cancel: () => true, poster: async () => null }, { host: '127.0.0.1' });
+  const server = createLanServer({ status: async () => ({ provider: 'real-debrid' }), library: async () => ({ total: 1, items: [{ title: 'Host Film' }] }), catalog: async () => [], candidates: async () => [], jobs: () => [], plan: async ids => ({ items: ids }), submit: async () => ['job-1'], cancel: () => true, poster: async () => null }, { host: '127.0.0.1' });
   const { port } = await server.start(0);
   const base = `http://127.0.0.1:${port}`;
   try {
@@ -17,6 +17,7 @@ test('LAN browser requires local host, same-origin pairing, and session before c
     assert.equal(pair.status, 200);
     const cookie = pair.headers.get('set-cookie').split(';')[0];
     assert.deepEqual(await (await fetch(`${base}/api/status`, { headers: { cookie } })).json(), { provider: 'real-debrid' });
+    assert.deepEqual(await (await fetch(`${base}/api/library`, { headers: { cookie } })).json(), { total: 1, items: [{ title: 'Host Film' }] });
     assert.equal((await fetch(`${base}/api/submit`, { method: 'POST', headers: { cookie, origin: 'http://evil.example', 'content-type': 'application/json' }, body: JSON.stringify({ planId: 'x' }) })).status, 403);
     assert.deepEqual(await (await fetch(`${base}/api/plan`, { method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: JSON.stringify({ ids: ['rd-1'] }) })).json(), { items: ['rd-1'] });
     const page = await (await fetch(base)).text();

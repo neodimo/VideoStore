@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('videostore', {
   lanPairCode: () => ipcRenderer.invoke('lan:pairCode'),
   lanDiscover: () => ipcRenderer.invoke('lan:discover'),
   lanConnect: host => ipcRenderer.invoke('lan:connect', host),
+  sshConnect: details => ipcRenderer.invoke('ssh:connect', details),
   onLanDiscoveryProgress: callback => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('lan:discoveryProgress', handler);

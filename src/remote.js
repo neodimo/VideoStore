@@ -7,6 +7,8 @@ let cart = [];
 let plan = null;
 let hostStatus = {};
 let catalogTimer;
+let libraryTimer;
+let hostLibrary = { items: [], total: 0, offset: 0 };
 
 async function api(route, options = {}) {
   const response = await fetch(route, { credentials: 'same-origin', headers: { 'content-type': 'application/json' }, ...options });
@@ -18,6 +20,25 @@ async function api(route, options = {}) {
 function notice(message, error = false) { $('#notice').textContent = message; $('#notice').style.color = error ? '#ffa8a8' : '#d7ff61'; }
 function showPairing() { $('#pairing').hidden = false; $('#workspace').hidden = true; }
 function showWorkspace() { $('#pairing').hidden = true; $('#workspace').hidden = false; }
+
+function renderHostLibrary() {
+  $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} title${hostLibrary.total === 1 ? '' : 's'}`;
+  $('#host-library').innerHTML = hostLibrary.items.length ? hostLibrary.items.map(item => {
+    const best = item.versions[0];
+    const episode = item.type === 'tv' && item.season != null && item.episode != null ? ` · S${String(item.season).padStart(2, '0')}E${String(item.episode).padStart(2, '0')}` : '';
+    return `<article class="library-tile"><div class="library-art">${escapeHtml(item.type === 'tv' ? 'SERIES' : 'MOVIE')}</div><div class="library-info"><b>${escapeHtml(item.title)}${episode}</b><small>${escapeHtml(item.year || 'Year unknown')} · ${item.versions.length} version${item.versions.length === 1 ? '' : 's'} · ${escapeHtml(best.resolution || 'Resolution unknown')}${best.hdr ? ` · ${escapeHtml(best.hdr)}` : ''}</small><small>${escapeHtml(best.filename)}</small></div></article>`;
+  }).join('') : '<p class="empty">No matching titles on the media PC. Import its Plex folders in the host app if the library is empty.</p>';
+  $('#library-more').hidden = hostLibrary.items.length >= hostLibrary.total;
+}
+
+async function loadHostLibrary(more = false) {
+  try {
+    const offset = more ? hostLibrary.items.length : 0;
+    const result = await api(`/api/library?q=${encodeURIComponent($('#library-search').value.trim())}&offset=${offset}&limit=60`);
+    hostLibrary = { ...result, items: more ? [...hostLibrary.items, ...result.items] : result.items };
+    renderHostLibrary();
+  } catch (error) { $('#host-library').innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`; }
+}
 
 function renderCatalog() {
   $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong>${escapeHtml(item.name)}</strong>${item.poster ? `<img alt="" loading="lazy" src="${escapeHtml(item.poster)}">` : ''}</div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')} · ${item.type === 'series' ? 'Series' : 'Movie'}</p><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
@@ -72,11 +93,13 @@ async function loadJobs() {
 
 $('#pair-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/pair', { method: 'POST', body: JSON.stringify({ code: event.currentTarget.elements.code.value }) }); showWorkspace(); await initialize(); } catch (error) { notice(error.message, true); } });
 $('#catalog-search').addEventListener('input', () => { clearTimeout(catalogTimer); catalogTimer = setTimeout(() => loadCatalog($('#catalog-search').value), 350); });
+$('#library-search').addEventListener('input', () => { clearTimeout(libraryTimer); libraryTimer = setTimeout(() => loadHostLibrary(), 300); });
+$('#library-more').addEventListener('click', () => loadHostLibrary(true));
 $('#candidate-search').addEventListener('input', renderCandidates);
 $('#refresh-candidates').addEventListener('click', () => loadCandidates(true));
 $('#preview').addEventListener('click', async () => { try { plan = await api('/api/plan', { method: 'POST', body: JSON.stringify({ ids: cart.map(item => item.id) }) }); renderPlan(); notice('Review every folder and post-download free-space value before sending.'); } catch (error) { notice(error.message, true); } });
 $('#submit').addEventListener('click', async () => { try { const result = await api('/api/submit', { method: 'POST', body: JSON.stringify({ planId: plan.planId }) }); cart = []; plan = null; renderCart(); await loadJobs(); notice(`${result.jobIds.length} download job${result.jobIds.length === 1 ? '' : 's'} sent to the host. No files came from this laptop.`); } catch (error) { notice(error.message, true); } });
 
-async function initialize() { hostStatus = await api('/api/status'); showWorkspace(); await Promise.all([loadCatalog(), loadCandidates(), loadJobs()]); }
+async function initialize() { hostStatus = await api('/api/status'); showWorkspace(); await Promise.all([loadHostLibrary(), loadCatalog(), loadCandidates(), loadJobs()]); }
 setInterval(() => { if (!$('#workspace').hidden) loadJobs(); }, 3000);
 initialize().catch(() => showPairing());

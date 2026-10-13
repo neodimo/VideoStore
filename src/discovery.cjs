@@ -24,7 +24,7 @@ function scanAddresses(interfaces = os.networkInterfaces()) {
 }
 
 function probeHost(host, options = {}) {
-  if (!isPrivateIpv4(host)) return Promise.resolve(null);
+  if (!isPrivateIpv4(host) && !(options.allowLoopback && host === '127.0.0.1')) return Promise.resolve(null);
   const port = options.port || PORT;
   return new Promise(resolve => {
     let settled = false;

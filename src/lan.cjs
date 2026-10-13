@@ -83,6 +83,7 @@ function createLanServer(handlers, options = {}) {
     if (!cookie || !sessions.has(cookie) || sessions.get(cookie) < Date.now()) return send(response, 401, { error: 'Pair with the host app first' });
     try {
       if (request.method === 'GET' && url.pathname === '/api/status') return send(response, 200, await handlers.status());
+      if (request.method === 'GET' && url.pathname === '/api/library') return send(response, 200, await handlers.library(url.searchParams.get('q') || '', url.searchParams.get('offset') || '0', url.searchParams.get('limit') || '60'));
       if (request.method === 'GET' && url.pathname === '/api/catalog') return send(response, 200, await handlers.catalog(url.searchParams.get('q') || ''));
       if (request.method === 'GET' && url.pathname === '/api/candidates') return send(response, 200, await handlers.candidates(url.searchParams.get('refresh') === '1'));
       if (request.method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, handlers.jobs());
