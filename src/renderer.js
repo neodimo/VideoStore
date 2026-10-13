@@ -24,7 +24,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character =>
 const bytes = value => value ? `${(value / 1_073_741_824).toFixed(2)} GB` : 'Unknown';
 const bitrate = value => value ? `${(value / 1_000_000).toFixed(1)} Mb/s` : 'Unknown';
 const duration = value => value ? `${Math.round(value / 60)} min` : 'Unknown';
-const titleKey = item => `${item.type}:${item.title.toLowerCase()}:${item.year || ''}:${item.season ?? ''}:${item.episode ?? ''}`;
+const titleKey = item => `${item.type}:${item.plex?.titleKey ? `plex:${item.plex.titleKey}` : `${item.title.toLowerCase()}:${item.year || ''}`}:${item.season ?? ''}:${item.episode ?? ''}`;
 
 function groups() {
   const grouped = new Map();
@@ -44,7 +44,7 @@ function filteredGroups() {
     if (view === 'tv' && item.type !== 'tv') return false;
     if (view === 'watchlist' && !group.items.some(i => i.watchlist)) return false;
     if (view === 'unwatched' && group.items.every(i => i.watched)) return false;
-    return !query || group.items.some(i => `${i.title} ${i.filename} ${i.edition || ''}`.toLowerCase().includes(query));
+    return !query || group.items.some(i => `${i.title} ${i.episodeTitle || ''} ${i.filename} ${i.edition || ''}`.toLowerCase().includes(query));
   });
   const sort = $('#sort').value;
   result.sort((a, b) => sort === 'title' ? a.best.title.localeCompare(b.best.title) : sort === 'recent' ? b.best.addedAt.localeCompare(a.best.addedAt) : b.best.rank.points - a.best.rank.points);
@@ -126,7 +126,7 @@ async function importPlex() {
     const result = await window.videostore.plexImport();
     await refresh();
     destinations = await window.videostore.storageList();
-    status(`${result.added} existing videos indexed from ${result.roots} Plex folders; ${result.registered} new destinations.${result.cancelled ? ' Scan cancelled.' : ''}${result.errors.length ? ` ${result.errors.length} scan warning(s).` : ''}`);
+    status(`${result.added} existing videos indexed from ${result.roots} Plex folders; ${result.registered} new destinations. ${result.matched || 0} Plex associations reused; ${result.updated || 0} existing entries updated.${result.cancelled ? ' Scan cancelled.' : ''}${result.errors.length ? ` Warnings: ${result.errors.join('; ')}` : ''}`);
   } catch (error) { status(`Plex import failed: ${error.message}`, true); }
   finally { plexBusy = false; scanActive = false; $('#scan-folder').textContent = 'Scan folder'; renderStorage(); }
 }

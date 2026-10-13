@@ -17,3 +17,15 @@ test('SSH tunnel accepts only a private VideoStore destination', () => {
   assert.throws(() => validateConfig({ host: 'media.example', username: 'omid', serviceHost: '8.8.8.8' }), /private/);
   assert.throws(() => validateConfig({ host: 'media.example', username: 'omid', port: 70000 }), /port/);
 });
+
+test('Plex identities keep different matches apart and remote search uses episode titles without leaking paths or GUIDs', () => {
+  const item = { title: 'Same Show', type: 'tv', year: 2005, season: 0, episode: 3,
+    episodeTitle: 'A Special Episode', filename: 'opaque.mkv', path: 'C:\\private\\opaque.mkv',
+    plex: { titleKey: '20', ratingKey: '22', guid: 'local://private/path' } };
+  const result = listHostLibrary([{ ...item, id: 'first' }, { ...item, id: 'second' },
+    { ...item, id: 'different', plex: { ...item.plex, titleKey: '99' } }], 'special');
+  assert.equal(result.total, 2);
+  assert.equal(result.items[0].versions.length, 2);
+  assert.equal(result.items[0].episodeTitle, 'A Special Episode');
+  assert.doesNotMatch(JSON.stringify(result), /private|local:\/\/|ratingKey|guid/);
+});

@@ -15,7 +15,7 @@ const { inferLayout, LAYOUTS } = require('./placement.cjs');
 const { createMediaController } = require('./media-controller.cjs');
 const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
-const { discoverPlexLibraries } = require('./plex.cjs');
+const { discoverPlexLibraries, readPlexMetadata, plexPathKey, applyPlexMetadata } = require('./plex.cjs');
 const { listHostLibrary } = require('./host-library.cjs');
 const { openSshTunnel, validateConfig } = require('./ssh-tunnel.cjs');
 
@@ -89,7 +89,9 @@ async function probe(filePath) {
 async function addFiles(filePaths, options = {}) {
   const added = [];
   const errors = [];
-  const knownPaths = new Set(library.items.map(item => process.platform === 'win32' ? item.path.toLowerCase() : item.path));
+  let updated = 0;
+  let matched = 0;
+  const knownPaths = new Map(library.items.map(item => [plexPathKey(item.path), item]));
   for (const filePath of filePaths) {
     if (options.shouldCancel?.()) break;
     if (!VIDEO_EXTENSIONS.has(path.extname(filePath).toLowerCase())) continue;
@@ -97,8 +99,13 @@ async function addFiles(filePaths, options = {}) {
       const stat = await fs.stat(filePath);
       if (!stat.isFile()) continue;
       const resolved = await fs.realpath(filePath);
-      const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-      if (knownPaths.has(key)) continue;
+      const key = plexPathKey(resolved);
+      const metadata = options.plexMetadata?.get(plexPathKey(filePath)) || options.plexMetadata?.get(key);
+      if (metadata) matched++;
+      if (knownPaths.has(key)) {
+        if (applyPlexMetadata(knownPaths.get(key), metadata)) updated++;
+        continue;
+      }
       const parsed = parseName(resolved);
       const quality = probeQuality(parsed, options.inspect === false ? null : await probe(resolved), stat.size);
       const item = {
@@ -106,13 +113,14 @@ async function addFiles(filePaths, options = {}) {
         provider: 'Local file', sourceRoot: options.sourceRoot || null, addedAt: new Date().toISOString(), watched: false, watchlist: false
       };
       item.rank = score(quality, library.preferences);
+      applyPlexMetadata(item, metadata);
       library.items.push(item);
-      knownPaths.add(key);
+      knownPaths.set(key, item);
       added.push(item);
     } catch (error) { errors.push(`${path.basename(filePath)}: ${error.message}`); }
   }
-  if (added.length) await save();
-  return { added: added.length, errors, cancelled: Boolean(options.shouldCancel?.()) };
+  if (added.length || updated) await save();
+  return { added: added.length, updated, matched, errors, cancelled: Boolean(options.shouldCancel?.()) };
 }
 
 function getItem(id) { return library.items.find(item => item.id === id); }
@@ -267,6 +275,15 @@ app.whenReady().then(async () => {
     const available = roots.filter(root => root.available);
     if (!available.length) throw new Error('No readable Plex movie or TV folders found on this PC');
     const errors = roots.filter(root => !root.available).map(root => `${root.name}: ${root.reason}`);
+    // Keep a recoverable catalog snapshot before refreshing existing title identities.
+    await save();
+    await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`);
+    let plexMetadata;
+    try {
+      const metadata = readPlexMetadata();
+      plexMetadata = metadata.byPath;
+      if (metadata.ambiguous) errors.push(`${metadata.ambiguous} multi-assigned Plex paths left unchanged; review required`);
+    } catch (error) { errors.push(error.message); }
     let registered = 0;
     for (const root of available) {
       const normalized = process.platform === 'win32' ? root.path.toLowerCase() : root.path;
@@ -277,17 +294,21 @@ app.whenReady().then(async () => {
     if (registered) await save();
     scanCancelled = false;
     let added = 0;
+    let updated = 0;
+    let matched = 0;
     for (const [index, root] of available.entries()) {
       if (scanCancelled) break;
       event.sender.send('scan:progress', { found: 0, root: root.name, rootIndex: index + 1, rootTotal: available.length });
       const scan = await scanVideos(root.path, progress => event.sender.send('scan:progress', { ...progress, root: root.name, rootIndex: index + 1, rootTotal: available.length }), () => scanCancelled);
       errors.push(...scan.errors);
       if (scan.cancelled) break;
-      const imported = await addFiles(scan.files, { inspect: false, sourceRoot: root.path, shouldCancel: () => scanCancelled });
+      const imported = await addFiles(scan.files, { inspect: false, sourceRoot: root.path, plexMetadata, shouldCancel: () => scanCancelled });
       added += imported.added;
+      updated += imported.updated;
+      matched += imported.matched;
       errors.push(...imported.errors);
     }
-    return { roots: available.length, registered, added, errors, cancelled: scanCancelled };
+    return { roots: available.length, registered, added, updated, matched, errors, cancelled: scanCancelled };
   });
   ipcMain.handle('storage:remove', async (_event, id) => {
     library.destinations = library.destinations.filter(item => item.id !== id);

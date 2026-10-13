@@ -4,8 +4,9 @@ function listHostLibrary(items, query = '', offset = 0, limit = 60) {
   const size = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 60));
   const groups = new Map();
   for (const item of items) {
-    if (term && !`${item.title || ''} ${item.filename || ''} ${item.edition || ''}`.toLowerCase().includes(term)) continue;
-    const key = `${item.type}:${String(item.title || '').toLowerCase()}:${item.year || ''}:${item.season ?? ''}:${item.episode ?? ''}`;
+    if (term && !`${item.title || ''} ${item.episodeTitle || ''} ${item.filename || ''} ${item.edition || ''}`.toLowerCase().includes(term)) continue;
+    const identity = item.plex?.titleKey ? `plex:${item.plex.titleKey}` : `${String(item.title || '').toLowerCase()}:${item.year || ''}`;
+    const key = `${item.type}:${identity}:${item.season ?? ''}:${item.episode ?? ''}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   }
@@ -19,6 +20,7 @@ function listHostLibrary(items, query = '', offset = 0, limit = 60) {
       return {
         key, title: first.title, year: first.year || null, type: first.type,
         season: first.season ?? null, episode: first.episode ?? null,
+        episodeTitle: first.episodeTitle || null,
         versions: versions.map(item => ({
           id: item.id, filename: item.filename, sizeBytes: item.sizeBytes,
           resolution: item.quality?.resolution || null, hdr: item.quality?.hdr || null,

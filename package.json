@@ -1,6 +1,6 @@
 {
   "name": "videostore",
-  "version": "0.1.0-preview.7",
+  "version": "0.1.0-preview.8",
   "private": true,
   "description": "Local-first video library and honest quality picker",
   "author": {
