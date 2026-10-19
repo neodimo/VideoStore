@@ -24,6 +24,7 @@ test('laptop client pairs, shows host candidates, and falls back from a missing 
     const body = route === '/api/pair' ? { paired: true } : responses[route];
     return { ok: Boolean(body), status: body ? 200 : 404, json: async () => body || { error: 'Missing' } };
   };
+  window.eval(fs.readFileSync(path.join(__dirname, '../src/poster-loader.js'), 'utf8'));
   window.eval(script);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(window.document.querySelector('#catalog .poster-tile')?.dataset.id, 'tt1234567');
@@ -33,7 +34,9 @@ test('laptop client pairs, shows host candidates, and falls back from a missing 
   const img = window.document.querySelector('.poster-tile img');
   assert.match(img.src, /\/api\/poster\/tt1234567$/);
   img.dispatchEvent(new window.Event('error'));
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(img.src, 'https://images.metahub.space/poster.jpg');
+  img.dispatchEvent(new window.Event('load'));
   window.document.querySelector('#candidates button').click();
   assert.equal(window.document.querySelector('#cart-count').textContent, '1');
   window.document.querySelector('#preview').click();
@@ -56,6 +59,7 @@ test('paired library keeps navigation while drilling show → season → episode
     const body=u.pathname==='/api/library'?listHostLibrary(files,u.searchParams.get('q'),u.searchParams.get('offset'),60,{key:u.searchParams.get('key'),season:u.searchParams.get('season'),view:u.searchParams.get('view')||'all'}):u.pathname==='/api/candidates'?{items:[]}:u.pathname==='/api/status'?{}:[];
     return{ok:true,json:async()=>body};
   };
+  dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/poster-loader.js'),'utf8'));
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/remote.js'),'utf8'));
   const tick=()=>new Promise(r=>setImmediate(r));await tick();
   const d=dom.window.document;

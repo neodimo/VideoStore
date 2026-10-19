@@ -61,7 +61,7 @@ function render() {
   $('#grid').innerHTML = found.items.length ? found.items.map((item,index) => {
     const label = item.kind === 'season' ? 'SEASON' : item.kind === 'episode' ? 'EPISODE' : item.type === 'tv' ? 'SERIES' : 'MOVIE';
     const summary = item.kind === 'season' ? `${item.episodeCount} episodes` : item.kind === 'episode' ? `Episode ${item.episode ?? '?'} · ${item.versionCount} versions` : item.type === 'tv' ? `${item.seasonCount} seasons · ${item.episodeCount} episodes` : `${item.year || 'Year unknown'} · ${item.versionCount} versions`;
-    return `<button class="tile" data-index="${index}" data-key="${escapeHtml(item.detailKey || item.key)}"><div class="poster"><small>${label}</small><span>${escapeHtml(item.title)}</span></div><div class="tile-info"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(summary)}</p></div></button>`;
+    return `<button class="tile" data-index="${index}" data-key="${escapeHtml(item.detailKey || item.key)}"><div class="poster"><span>${escapeHtml(item.title)}</span></div><div class="tile-info"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(summary)}</p><div class="tags"><span class="media-kind">${label}</span></div></div></button>`;
   }).join('') : `<div class="empty"><b>${library.items.length ? 'Nothing matches this view' : 'Your collection starts here'}</b><div>Add videos or import the host’s Plex library.</div>${library.items.length ? '' : '<button class="primary" id="empty-add">＋ Add videos</button>'}</div>`;
   document.querySelectorAll('.tile').forEach(tile => tile.addEventListener('click', () => {
     const item=found.items[Number(tile.dataset.index)];
@@ -240,25 +240,24 @@ async function loadProviders() {
 function renderCatalog() {
   catalogPosterObserver?.disconnect();
   $('#count').textContent = `${catalogItems.length} catalog titles · metadata by Cinemeta`;
-  $('#grid').innerHTML = catalogItems.length ? catalogItems.map(meta => `<button class="tile catalog-tile" data-id="${escapeHtml(meta.id)}" data-type="${escapeHtml(meta.type)}"><div class="poster"><span class="poster-fallback">${escapeHtml(meta.name)}</span>${meta.poster ? `<img src="${escapeHtml(meta.poster)}" alt="" loading="lazy">` : ''}<small>${meta.type === 'series' ? 'SERIES' : 'MOVIE'}</small></div><div class="tile-info"><strong>${escapeHtml(meta.name)}</strong><p>${escapeHtml(meta.year || 'Year unknown')} · ${escapeHtml(meta.genres.slice(0, 2).join(' / ') || 'Genre unknown')}</p><div class="tags"><span>Cinemeta</span><span>IMDb ${escapeHtml(meta.id)}</span></div></div></button>`).join('') : '<div class="empty"><b>No catalog titles loaded</b><div>Search by title, or check the metadata connection.</div></div>';
+  $('#grid').innerHTML = catalogItems.length ? catalogItems.map(meta => `<button class="tile catalog-tile" data-id="${escapeHtml(meta.id)}" data-type="${escapeHtml(meta.type)}"><div class="poster"><span class="poster-fallback">${escapeHtml(meta.name)}</span><img alt="" loading="lazy" hidden></div><div class="tile-info"><strong>${escapeHtml(meta.name)}</strong><p>${escapeHtml(meta.year || 'Year unknown')} · ${escapeHtml(meta.genres.slice(0, 2).join(' / ') || 'Genre unknown')}</p><div class="tags"><span class="media-kind">${meta.type === 'series' ? 'SERIES' : 'MOVIE'}</span><span>Cinemeta</span><span>IMDb ${escapeHtml(meta.id)}</span></div></div></button>`).join('') : '<div class="empty"><b>No catalog titles loaded</b><div>Search by title, or check the metadata connection.</div></div>';
   document.querySelectorAll('.catalog-tile').forEach(tile => tile.addEventListener('click', () => showCatalogDetails(tile.dataset.type, tile.dataset.id)));
-  document.querySelectorAll('.catalog-tile .poster img').forEach(img => {
-    const fallback = img.src;
-    img.addEventListener('error', () => {
-      if (img.dataset.override === 'true') { img.dataset.override = 'false'; img.src = fallback; }
-      else img.remove();
+  const loadPoster = tile => {
+    const meta = catalogItems.find(item => item.id === tile.dataset.id && item.type === tile.dataset.type);
+    if (!meta) return;
+    window.VideoStorePosters.load(tile.querySelector('.poster img'), {
+      primary: () => window.videostore.posterFor?.(meta.id),
+      fallback: window.VideoStorePosters.fallback(meta.id, meta.poster)
     });
-  });
-  if (window.videostore.posterFor && typeof IntersectionObserver !== 'undefined') {
+  };
+  if (typeof IntersectionObserver !== 'undefined') {
     catalogPosterObserver = new IntersectionObserver(entries => entries.forEach(entry => {
       if (!entry.isIntersecting) return;
       catalogPosterObserver.unobserve(entry.target);
-      const tile = entry.target;
-      const img = tile.querySelector('.poster img');
-      if (img) window.videostore.posterFor(tile.dataset.id).then(art => { if (art && img.isConnected) { img.dataset.override = 'true'; img.src = art; img.title = 'RatingPosterDB poster'; } }).catch(() => {});
+      loadPoster(entry.target);
     }), { rootMargin: '300px' });
     document.querySelectorAll('.catalog-tile').forEach(tile => catalogPosterObserver.observe(tile));
-  }
+  } else document.querySelectorAll('.catalog-tile').forEach(loadPoster);
 }
 
 async function loadCatalog(query = '') {

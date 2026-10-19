@@ -55,7 +55,7 @@ function createLanServer(handlers, options = {}) {
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (request.method === 'GET' && url.pathname === '/api/identity')
       return send(response, 200, { app: 'videostore', protocol: 1, name: os.hostname() });
-    if (request.method === 'GET' && ['/', '/remote.js', '/remote.css', '/assets/vhs.svg'].includes(url.pathname)) {
+    if (request.method === 'GET' && ['/', '/remote.js', '/poster-loader.js', '/remote.css', '/assets/vhs.svg'].includes(url.pathname)) {
       const filename = url.pathname === '/' ? 'remote.html' : url.pathname.slice(1);
       const mime = filename.endsWith('.html') ? 'text/html' : filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.svg') ? 'image/svg+xml' : 'text/css';
       const content = await fs.readFile(path.join(root, filename));

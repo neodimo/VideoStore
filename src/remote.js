@@ -75,7 +75,7 @@ async function loadHostLibrary(more = false) {
 }
 
 function renderCatalog() {
-  $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong>${escapeHtml(item.name)}</strong>${item.poster ? `<img alt="" loading="lazy" src="${escapeHtml(item.poster)}">` : ''}</div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')} · ${item.type === 'series' ? 'Series' : 'Movie'}</p><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
+  $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong class="poster-fallback">${escapeHtml(item.name)}</strong><img alt="" loading="lazy" hidden></div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')} · ${item.type === 'series' ? 'Series' : 'Movie'}</p><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
   document.querySelectorAll('.poster-tile').forEach(tile => tile.querySelector('button').addEventListener('click', () => {
     const item = catalog.find(row => row.id === tile.dataset.id);
     setView('account');
@@ -84,15 +84,11 @@ function renderCatalog() {
     $('#candidate-search').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
   document.querySelectorAll('.poster-tile').forEach(tile => {
-    const img = tile.querySelector('img');
-    if (!img) return;
-    const fallback = img.src;
-    let usingOverride = Boolean(hostStatus.artworkConfigured);
-    img.addEventListener('error', () => {
-      if (usingOverride) { usingOverride = false; img.src = fallback; }
-      else img.remove();
+    const item = catalog.find(row => row.id === tile.dataset.id);
+    window.VideoStorePosters.load(tile.querySelector('img'), {
+      primary: () => hostStatus.artworkConfigured ? `/api/poster/${item.id}` : null,
+      fallback: window.VideoStorePosters.fallback(item.id, item.poster)
     });
-    if (usingOverride) img.src = `/api/poster/${tile.dataset.id}`;
   });
 }
 
