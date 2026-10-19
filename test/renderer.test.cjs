@@ -25,6 +25,9 @@ test('discover fetches RPDB without a metadata poster and places type badges bel
     assert.ok(img);
     assert.equal(tile.querySelector('.poster small'), null);
     assert.equal(tile.querySelector('.tile-info .media-kind').textContent, 'MOVIE');
+    assert.equal(tile.querySelectorAll('.tags > span').length, 1);
+    assert.doesNotMatch(tile.textContent, /Cinemeta|IMDb|tt34384900/);
+    assert.equal(tile.dataset.id, 'tt34384900');
     img.dispatchEvent(new dom.window.Event('error'));
     deliver('data:image/jpeg;base64,/9j/');
     await new Promise(resolve => setImmediate(resolve));
