@@ -54,6 +54,6 @@ test('TV placement keeps an existing season together when safe, but never crosse
   aFree = 505;
   assert.equal((await preview())[0].destinationId, 'b');
   aFree = 600;
-  const existing = await planCart(files, destinations, statfs, async target => target.startsWith('/a/'), new Map(), items);
+  const existing = await planCart(files, destinations, statfs, async target => target.startsWith(path.join('/a', 'Example Show')), new Map(), items);
   assert.equal(existing[0].destinationId, 'b');
 });
