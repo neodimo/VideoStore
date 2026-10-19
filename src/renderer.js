@@ -93,7 +93,7 @@ function renderStorage() {
     const layoutLabel = document.createElement('label');
     layoutLabel.textContent = ' Folder pattern ';
     const layoutSelect = document.createElement('select');
-    const patterns = destination.type === 'movie' ? [['unknown', 'Review pattern'], ['movie-folder', 'Title (Year)/File'], ['movie-flat', 'File in root']] : [['unknown', 'Review pattern'], ['tv-season', 'Show/Season XX/File'], ['tv-flat', 'File in root']];
+    const patterns = destination.type === 'movie' ? [['unknown', 'Review pattern'], ['movie-folder', 'Title (Year)/File'], ['movie-flat', 'File in root']] : [['unknown', 'Review pattern'], ['tv-season', 'Show/Season XX/Episode file · reuse existing folders'], ['tv-flat', 'File in root']];
     for (const [value, text] of patterns) layoutSelect.add(new Option(text, value));
     layoutSelect.value = destination.layout || 'unknown';
     layoutLabel.append(layoutSelect);

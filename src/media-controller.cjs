@@ -4,7 +4,7 @@ const { listDownloads: listTorboxDownloads, requestDownloadLink } = require('./t
 const { planCart, volumeKey } = require('./placement.cjs');
 const { downloadToLibrary } = require('./downloader.cjs');
 
-function createMediaController({ getToken, getDestinations, onImported, onJobsChanged = () => {}, savedJobs = [], listImpl = listDownloads, torboxListImpl = listTorboxDownloads, torboxLinkImpl = requestDownloadLink, planImpl = planCart, downloadImpl = downloadToLibrary }) {
+function createMediaController({ getToken, getDestinations, getLibraryItems = () => [], onImported, onJobsChanged = () => {}, savedJobs = [], listImpl = listDownloads, torboxListImpl = listTorboxDownloads, torboxLinkImpl = requestDownloadLink, planImpl = planCart, downloadImpl = downloadToLibrary }) {
   let candidates = new Map();
   let candidateFetchedAt = 0;
   let providerWarnings = [];
@@ -47,7 +47,7 @@ function createMediaController({ getToken, getDestinations, onImported, onJobsCh
     await refreshCandidates();
     const selected = ids.map(id => candidates.get(id));
     if (selected.some(item => !item || (!item.sourceUrl && !item.sourceRef) || !item.sizeBytes)) throw new Error('Selected account file has no ready source or exact size; refresh the account list');
-    const placements = await planImpl(selected.map(item => ({ name: item.filename, sizeBytes: item.sizeBytes })), getDestinations(), undefined, undefined, reservedBytes());
+    const placements = await planImpl(selected.map(item => ({ name: item.filename, sizeBytes: item.sizeBytes })), getDestinations(), undefined, undefined, reservedBytes(), getLibraryItems());
     const id = crypto.randomUUID();
     plans.set(id, { selected, placements, createdAt: Date.now() });
     return { planId: id, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), items: placements };
@@ -57,7 +57,7 @@ function createMediaController({ getToken, getDestinations, onImported, onJobsCh
     const plan = plans.get(planId);
     plans.delete(planId);
     if (!plan || Date.now() - plan.createdAt > 10 * 60_000) throw new Error('Placement preview expired; preview again');
-    const fresh = await planImpl(plan.selected.map(item => ({ name: item.filename, sizeBytes: item.sizeBytes })), getDestinations(), undefined, undefined, reservedBytes());
+    const fresh = await planImpl(plan.selected.map(item => ({ name: item.filename, sizeBytes: item.sizeBytes })), getDestinations(), undefined, undefined, reservedBytes(), getLibraryItems());
     if (fresh.some((item, index) => item.destinationId !== plan.placements[index].destinationId || item.relativePath !== plan.placements[index].relativePath)) throw new Error('Drive placement changed; review a fresh preview before submitting');
     const created = plan.selected.map((candidate, index) => {
       const placement = fresh[index];

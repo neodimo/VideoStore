@@ -2,6 +2,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { VIDEO_EXTENSIONS, parseName } = require('./core.cjs');
 const { evaluateDestination, recommend } = require('./storage.cjs');
+const { resolveTvPath, showYear } = require('./tv-placement.cjs');
 
 const LAYOUTS = {
   movie: new Set(['movie-folder', 'movie-flat']),
@@ -30,7 +31,8 @@ function relativeMediaPath(file, layout) {
   if (!LAYOUTS[file.parsed.type]?.has(layout)) throw new Error('Folder layout must be confirmed before placement');
   if (layout === 'movie-flat' || layout === 'tv-flat') return filename;
   if (layout === 'movie-folder') return path.join(`${title}${file.parsed.year ? ` (${file.parsed.year})` : ''}`, filename);
-  return path.join(title, `Season ${String(file.parsed.season).padStart(2, '0')}`, filename);
+  const year = showYear(file);
+  return path.join(`${title}${year ? ` (${year})` : ''}`, `Season ${String(file.parsed.season).padStart(2, '0')}`, filename);
 }
 
 async function inferLayout(root, type) {
@@ -62,7 +64,7 @@ async function inferLayout(root, type) {
   return 'unknown';
 }
 
-async function planCart(files, destinations, statfs = fs.statfs, exists = async target => fs.access(target).then(() => true, () => false), activeReservations = new Map()) {
+async function planCart(files, destinations, statfs = fs.statfs, exists = async target => fs.access(target).then(() => true, () => false), activeReservations = new Map(), libraryItems = []) {
   if (!Array.isArray(files) || !files.length || files.length > 50) throw new Error('Select 1–50 video files');
   const normalized = files.map(validateCartFile);
   const stats = new Map();
@@ -75,11 +77,15 @@ async function planCart(files, destinations, statfs = fs.statfs, exists = async 
     const file = normalized[index];
     const options = destinations.filter(d => d.type === file.parsed.type && LAYOUTS[file.parsed.type].has(d.layout) && stats.has(d.id)).map(d => {
       const evaluation = evaluateDestination(d, file.sizeBytes, stats.get(d.id), reserved.get(volumeKey(d)) || 0);
-      return { ...evaluation, layout: d.layout, relativePath: relativeMediaPath(file, d.layout) };
+      if (!evaluation.eligible) return { ...evaluation, reuse: 0 };
+      const fallback = relativeMediaPath(file, d.layout);
+      const resolved = d.layout === 'tv-season' ? resolveTvPath(file, d, libraryItems, fallback) : { relativePath: fallback, reuse: 0 };
+      return { ...evaluation, layout: d.layout, ...resolved };
     }).filter(option => option.eligible);
     const available = [];
     for (const option of options) if (!(await exists(path.join(option.path, option.relativePath))) && !planned.some(p => p && p.destinationId === option.id && p.relativePath === option.relativePath)) available.push(option);
-    const best = recommend(available, file.parsed.type);
+    const reuse = Math.max(0, ...available.map(option => option.reuse));
+    const best = recommend(available.filter(option => option.reuse === reuse), file.parsed.type);
     if (!best) throw new Error(`No safe ${file.parsed.type === 'tv' ? 'TV' : 'movie'} destination for ${file.filename}; configure a folder layout or free-space floor`);
     const chosenDestination = destinations.find(d => d.id === best.id);
     const volume = volumeKey(chosenDestination);

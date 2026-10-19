@@ -176,6 +176,7 @@ app.whenReady().then(async () => {
   mediaController = createMediaController({
     getToken: readProviderToken,
     getDestinations: () => library.destinations,
+    getLibraryItems: () => library.items,
     savedJobs: Array.isArray(library.jobs) ? library.jobs : [],
     onImported: async filePath => { const result = await addFiles([filePath]); if (!result.added) throw new Error(result.errors.join('; ') || 'Library indexing failed'); },
     onJobsChanged: jobs => { library.jobs = jobs; void save().catch(error => console.error('Job state save failed:', error.message)); for (const window of BrowserWindow.getAllWindows()) window.webContents.send('media:jobs', jobs); }
