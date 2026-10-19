@@ -42,7 +42,7 @@ function groups() {
 function render() {
   libraryPosterObserver?.disconnect();
   catalogPosterObserver?.disconnect();
-  const names = { all: 'Your library', discover: 'Discover', providers: 'Providers', storage: 'Storage', account: 'Account files', network: 'Network host', movie: 'Movies', tv: 'TV shows', watchlist: 'Watchlist', unwatched: 'Unwatched' };
+  const names = { all: 'Your library', unmatched: 'Unmatched files', discover: 'Discover', providers: 'Providers', storage: 'Storage', account: 'Account files', network: 'Network host', movie: 'Movies', tv: 'TV shows', watchlist: 'Watchlist', unwatched: 'Unwatched' };
   $('#view-heading').textContent = names[view];
   $('#crumb').textContent = names[view];
   $('.hero').hidden = view !== 'all';
@@ -57,7 +57,8 @@ function render() {
   $('#search').placeholder = view === 'discover' ? 'Search movies and TV shows…' : 'Search titles, files, editions…';
   if (view === 'discover') { renderCatalog(); return; }
   const found = window.VideoStoreLibrary.browse(library.items, $('#search').value, librarySelection.offset, 60, {...librarySelection,view,sort:$('#sort').value});
-  $('#count').textContent = `${found.total} ${found.level} · ${library.items.length} files${library.plexSync?.state === 'unavailable' ? ' · Plex refresh unavailable' : ''}`;
+  $('[data-view="unmatched"]').hidden = !found.plexBacked || !found.unmatchedCount;
+  $('#count').textContent = `${found.total} ${found.level} · ${library.items.length} files${found.unmatchedCount ? ` · ${found.unmatchedCount} unmatched` : ''}${library.plexSync?.state === 'unavailable' ? ' · Plex refresh unavailable' : ''}`;
   $('#library-breadcrumbs').hidden = false;
   $('#library-breadcrumbs').innerHTML = found.crumbs.map((c,index) => `<button class="secondary" data-crumb="${index}">${escapeHtml(c.label)}</button>`).join(' / ');
   document.querySelectorAll('[data-crumb]').forEach(b => b.addEventListener('click', () => {const c=found.crumbs[Number(b.dataset.crumb)]; librarySelection={key:c.key,season:c.season,offset:0}; closeDetails();render();}));

@@ -35,12 +35,14 @@
   }
   function browse(items, query='', offset=0, limit=60, selection={}) {
     const term=String(query||'').trim().toLowerCase().slice(0,120), view=selection.view||'all';
-    const filtered=items.filter(i=>(!['movie','tv'].includes(view)||i.type===view)&&(view!=='watchlist'||i.watchlist)&&(view!=='unwatched'||!i.watched));
+    const plexBacked=items.some(i=>i.plex?.titleKey);
+    const unmatchedCount=plexBacked ? items.filter(i=>!i.plex?.titleKey).length : 0;
+    const filtered=items.filter(i=>(view==='unmatched' ? !i.plex?.titleKey : !plexBacked || Boolean(i.plex?.titleKey)) && (!['movie','tv'].includes(view)||i.type===view)&&(view!=='watchlist'||i.watchlist)&&(view!=='unwatched'||!i.watched));
     let titles=groups(filtered), level='titles', rows;
-    const crumbs=[{label:'Library',key:null,season:null}];
+    const crumbs=[{label:view==='unmatched'?'Unmatched files':'Library',key:null,season:null}];
     if(selection.key){
       const g=titles.find(g=>g.key===selection.key);
-      if(!g)return{total:0,offset:0,items:[],level:'titles',crumbs};
+      if(!g)return{total:0,offset:0,items:[],level:'titles',crumbs,plexBacked,unmatchedCount};
       crumbs.push({label:g.title,key:g.key,season:null});
       if(g.type==='movie'){level='versions';rows=versions(g.items);}
       else if(selection.season!=null&&selection.season!==''){
@@ -60,7 +62,7 @@
         versionCount:g.type==='movie'?g.items.length:undefined,versions:g.type==='movie'?versions(g.items):undefined}));
     }
     const start=Math.max(0,Math.min(100000,parseInt(offset,10)||0)), size=Math.max(1,Math.min(100,parseInt(limit,10)||60));
-    return{total:rows.length,offset:start,level,crumbs,items:rows.slice(start,start+size)};
+    return{total:rows.length,offset:start,level,crumbs,plexBacked,unmatchedCount,items:rows.slice(start,start+size)};
   }
   return{browse,groups,titleKey,episodeKey};
 });

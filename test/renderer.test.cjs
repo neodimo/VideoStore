@@ -144,6 +144,8 @@ test('Plex import shows source folders before indexing and updates destinations'
 test('local TV library shows a series once, then seasons and episodes with a persistent rail', async () => {
   const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'});
   const items=[1,2].map(n=>{const parsed=parseName(`/library/Show.S01E0${n}.mkv`),quality=probeQuality(parsed,null,1000);return{...parsed,id:String(n),episodeTitle:`Chapter ${n}`,quality,rank:score(quality),addedAt:'2026-01-01'};});
+  items.forEach(i=>{i.plex={titleKey:'100'};});
+  items.push({...items[0],id:'sample',title:'Sample clip',type:'movie',plex:undefined});
   const artworkRequests=[];
   dom.window.videostore={list:async()=>({items,preferences:{}}),libraryPosterFor:async id=>{artworkRequests.push(id);return 'data:image/jpeg;base64,/9j/2Q==';}};
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/library-model.js'),'utf8'));
@@ -159,5 +161,8 @@ test('local TV library shows a series once, then seasons and episodes with a per
   assert.equal(d.querySelectorAll('.tile').length,2);assert.match(d.querySelector('#grid').textContent,/Chapter 1/);
   assert.ok(d.querySelector('#navigation'));assert.equal(d.querySelector('.rail').hidden,false);
   d.querySelector('[data-crumb="0"]').click();assert.equal(d.querySelectorAll('.tile').length,1);
+  assert.equal(d.querySelector('[data-view="unmatched"]').hidden,false);
+  d.querySelector('[data-view="unmatched"]').click();assert.match(d.querySelector('#grid').textContent,/Sample clip/);
+  d.querySelector('[data-view="all"]').click();assert.equal(d.querySelectorAll('.tile').length,1);
   dom.window.close();
 });

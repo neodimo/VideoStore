@@ -49,3 +49,20 @@ test('series browse drills into ordered seasons and episodes, with duplicate ver
   assert.equal(listHostLibrary(files,'',0,60,{view:'movie'}).total,0);
   assert.equal(listHostLibrary(files,'',0,60,{key:'nonexistent'}).items.length,0);
 });
+
+test('Plex-backed library keeps filename guesses and sample clips in a reversible unmatched view', () => {
+  const confirmed={id:'film',type:'movie',title:'Correct Film',year:2024,plex:{titleKey:'10'},quality:{},rank:{}};
+  const sample={id:'sample',type:'movie',title:'sample-release-clip',filename:'sample.mkv',quality:{},rank:{}};
+  const pending={id:'new',type:'tv',title:'Unconfirmed Show',season:1,episode:1,quality:{},rank:{}};
+  const items=[confirmed,sample,pending];
+  const library=listHostLibrary(items);
+  assert.equal(library.total,1);assert.equal(library.items[0].title,'Correct Film');assert.equal(library.unmatchedCount,2);
+  assert.equal(listHostLibrary(items,'',0,60,{view:'unmatched'}).total,2);
+  assert.equal(listHostLibrary(items,'',0,60,{view:'tv'}).total,0);
+  pending.plex={titleKey:'20'};
+  assert.equal(listHostLibrary(items,'',0,60,{view:'tv'}).total,1);
+  assert.equal(listHostLibrary(items,'',0,60,{view:'unmatched'}).total,1);
+  assert.equal(items.length,3);
+  const ordinary=listHostLibrary([sample,{...pending,plex:undefined}]);
+  assert.equal(ordinary.total,2);assert.equal(ordinary.plexBacked,false);
+});

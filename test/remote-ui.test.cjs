@@ -53,6 +53,7 @@ test('paired library keeps navigation while drilling show → season → episode
   const {listHostLibrary}=require('../src/host-library.cjs');
   const files=[1,2].map(n=>({id:String(n),type:'tv',title:'A Show',year:2020,season:1,episode:n,episodeTitle:n===1?'Pilot':'Second',filename:`raw-file-${n}.mkv`,plex:{titleKey:'100'},quality:{},rank:{points:1}}));
   files.push({...files[0],id:'alternate',filename:'raw-alternate.mkv'});
+  files.push({...files[0],id:'sample',type:'movie',title:'Sample clip',plex:undefined});
   const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/remote.html'),'utf8'),{url:'http://127.0.0.1:43879/',runScripts:'outside-only'});
   dom.window.fetch=async route=>{
     const u=new URL(route,'http://127.0.0.1:43879');
@@ -73,6 +74,8 @@ test('paired library keeps navigation while drilling show → season → episode
   d.querySelector('.library-open').click();assert.equal(d.querySelector('.episode-versions').hidden,false);
   assert.match(d.querySelector('.episode-versions').textContent,/raw-alternate/);
   d.querySelector('[data-crumb="0"]').click();await tick();assert.equal(d.querySelectorAll('.library-tile').length,1);
+  assert.equal(d.querySelector('[data-view="unmatched"]').hidden,false);
+  d.querySelector('[data-view="unmatched"]').click();await tick();assert.match(d.querySelector('#host-library').textContent,/Sample clip/);
   for(const view of ['discover','account','cart','jobs','all']){d.querySelector(`[data-view="${view}"]`).click();await tick();assert.ok(d.querySelector('#remote-navigation'));assert.equal(d.querySelector('.rail').hidden,false);}
   dom.window.close();
 });

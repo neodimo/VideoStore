@@ -26,7 +26,7 @@ function showWorkspace() { $('#pairing').hidden = true; $('#workspace').hidden =
 
 function setView(view) {
   document.querySelectorAll('#remote-navigation button').forEach(b => { b.classList.toggle('active', b.dataset.view === view); if(b.dataset.view === view) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
-  const libraryView = ['all','movie','tv'].includes(view);
+  const libraryView = ['all','movie','tv','unmatched'].includes(view);
   $('.host-library').hidden = !libraryView;
   $('#discover-panel').hidden = view !== 'discover';
   $('#account-panel').hidden = view !== 'account';
@@ -42,8 +42,9 @@ function navigateLibrary(key = null, season = null) {
 }
 function renderHostLibrary() {
   libraryPosterObserver?.disconnect();
+  $('[data-view="unmatched"]').hidden = !hostLibrary.plexBacked || !hostLibrary.unmatchedCount;
   const label = {titles:'titles',seasons:'seasons',episodes:'episodes',versions:'versions'}[hostLibrary.level] || 'titles';
-  $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} ${label}`;
+  $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} ${label}${hostLibrary.unmatchedCount ? ` · ${hostLibrary.unmatchedCount} unmatched files` : ''}`;
   const crumbs = hostLibrary.crumbs || [{label:'Library',key:null,season:null}];
   $('#library-crumbs').innerHTML = crumbs.map((c,index) => `<button class="subtle" data-crumb="${index}" ${index === crumbs.length - 1 ? 'aria-current="page"' : ''}>${escapeHtml(c.label)}</button>`).join('<span aria-hidden="true"> / </span>');
   document.querySelectorAll('[data-crumb]').forEach(b => b.addEventListener('click', () => { const c = crumbs[Number(b.dataset.crumb)]; navigateLibrary(c.key,c.season); }));
