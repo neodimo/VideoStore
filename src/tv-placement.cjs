@@ -12,7 +12,10 @@ function showYear(file) {
 function resolveTvPath(file, destination, libraryItems, fallback) {
   const paths = /^[A-Za-z]:[\\/]/.test(destination.path) ? path.win32 : path;
   const year = showYear(file);
-  let matches = libraryItems.filter(item => item.type === 'tv' && titleKey(item.title) === titleKey(file.parsed.title) && (!year || item.year === year));
+  const named = libraryItems.filter(item => item.type === 'tv' && titleKey(item.title) === titleKey(file.parsed.title));
+  let matches = named.filter(item => !year || item.year === year);
+  if (year && named.length && !matches.length)
+    throw new Error(`TV file year conflicts with the existing show ${file.parsed.title}; review its identity before placement`);
   // Prefer Plex's exact identities to older filename guesses when both exist.
   if (matches.some(item => item.plex?.titleKey)) matches = matches.filter(item => item.plex?.titleKey);
   const identities = new Set(matches.map(item => item.plex?.titleKey || `${titleKey(item.title)}:${item.year || ''}`));

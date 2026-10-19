@@ -37,6 +37,7 @@ test('new TV folders retain a remake year but ignore years in episode titles', (
 test('ambiguous remakes and duplicate season folders are withheld instead of guessed', () => {
   const originals = [episode('/tv/Example Show (2020)/Season 01/old.mkv'), episode('/tv/Example Show (2024)/Season 01/old.mkv', { year: 2024, plex: { titleKey: 'show-2' } })];
   assert.throws(() => resolve('Example.Show.S01E02.mkv', '/tv', originals), /Multiple TV shows/);
+  assert.throws(() => resolve('Example.Show.2019.S01E02.mkv', '/tv', originals), /year conflicts/);
   assert.equal(resolve('Example.Show.2024.S01E02.mkv', '/tv', originals).relativePath, path.join('Example Show (2024)', 'Season 01', 'Example.Show.2024.S01E02.mkv'));
   assert.throws(() => resolve('Example.Show.S01E02.mkv', '/tv', [episode('/tv/Example Show/Season 01/old.mkv'), episode('/tv/Example Show/S01/other.mkv')]), /Multiple existing TV folders/);
   assert.equal(resolve('Example.Show.S01E02.mkv', '/tv', [episode('/other/Example Show/S01/old.mkv')]).reuse, 0);
