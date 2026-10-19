@@ -62,12 +62,24 @@ function readPlexMetadata(databasePath = plexDatabasePath(), platform = process.
     const mediaColumns = columns('media_items');
     const optional = (alias, column) => metadataColumns.has(column) ? `${alias}.${column}` : 'NULL';
     const active = (alias, available) => available.has('deleted_at') ? ` AND ${alias}.deleted_at IS NULL` : '';
+    const tables = new Set(database.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
+    const imdbIds = new Map();
+    if (tables.has('tags') && tables.has('taggings')) {
+      for (const row of database.prepare('SELECT taggings.metadata_item_id AS id, tags.tag FROM taggings JOIN tags ON tags.id = taggings.tag_id WHERE tags.tag_type = 314').all()) {
+        const match = /^imdb:\/\/(tt\d+)$/.exec(row.tag);
+        if (match) {
+          const ids = imdbIds.get(row.id) || new Set(); ids.add(match[1]); imdbIds.set(row.id, ids);
+        }
+      }
+    }
     const rows = database.prepare(`
       SELECT parts.file AS file, item.id AS rating_key, item.metadata_type AS metadata_type,
         item.title AS item_title, item.year AS item_year, ${optional('item', 'guid')} AS item_guid,
         ${optional('item', 'summary')} AS summary, item."index" AS episode,
         season."index" AS season, show.id AS show_key, show.title AS show_title,
-        show.year AS show_year, ${optional('show', 'guid')} AS show_guid
+        show.year AS show_year, ${optional('show', 'guid')} AS show_guid,
+        ${optional('item', 'hash')} AS item_hash, ${optional('show', 'hash')} AS show_hash,
+        ${optional('item', 'user_thumb_url')} AS item_thumb, ${optional('show', 'user_thumb_url')} AS show_thumb
       FROM media_parts AS parts
       JOIN media_items AS media ON media.id = parts.media_item_id
       JOIN metadata_items AS item ON item.id = media.metadata_item_id
@@ -89,12 +101,16 @@ function readPlexMetadata(databasePath = plexDatabasePath(), platform = process.
       if (typeof title !== 'string' || !title.trim()) continue;
       if (tv && (!Number.isInteger(row.season) || !Number.isInteger(row.episode))) continue;
       const key = plexPathKey(row.file, platform);
+      const ids = imdbIds.get(tv ? row.show_key : row.rating_key);
+      const legacyId = /(?:imdb:\/\/|com\.plexapp\.agents\.imdb:\/\/)(tt\d+)(?:\?|$)/.exec((tv ? row.show_guid : row.item_guid) || '')?.[1];
       const metadata = {
         title, year: (tv ? row.show_year : row.item_year) || null, type: tv ? 'tv' : 'movie',
         season: tv ? row.season : null, episode: tv ? row.episode : null,
         episodeTitle: tv ? row.item_title : null, summary: row.summary || null,
         plex: { ratingKey: String(row.rating_key), titleKey: String(tv ? row.show_key : row.rating_key),
-          guid: (tv ? row.show_guid : row.item_guid) || null, source: 'Plex library metadata' }
+          guid: (tv ? row.show_guid : row.item_guid) || null,
+          imdbId: ids?.size === 1 ? [...ids][0] : ids?.size > 1 ? null : legacyId || null,
+          artwork: { type: tv ? 'tv' : 'movie', hash: (tv ? row.show_hash : row.item_hash) || null, thumb: (tv ? row.show_thumb : row.item_thumb) || null }, source: 'Plex library metadata' }
       };
       // Multiple episodes in a single file need a richer model; never silently choose one.
       if (result.has(key) && result.get(key).plex.ratingKey !== metadata.plex.ratingKey) ambiguous.add(key);

@@ -63,6 +63,13 @@ test('reuses exact Plex file associations, TV hierarchy and manual titles withou
         (6,4,'C:\Movies\deleted.mkv',NULL),
         (7,5,'C:\Music\other.mp4',NULL),(8,6,'C:\Movies\deleted-part.mkv',123);
     `);
+    database.exec(`CREATE TABLE tags (id INTEGER, tag_type INTEGER, tag TEXT);
+      CREATE TABLE taggings (metadata_item_id INTEGER, tag_id INTEGER);
+      INSERT INTO tags VALUES (1,314,'imdb://tt0103639'),(2,314,'imdb://tt12345');
+      INSERT INTO taggings VALUES (10,1),(20,2);
+      ALTER TABLE metadata_items ADD COLUMN hash TEXT;
+      ALTER TABLE metadata_items ADD COLUMN user_thumb_url TEXT;
+      UPDATE metadata_items SET hash='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', user_thumb_url='metadata://posters/selected' WHERE id IN (10,20);`);
     database.close();
     const before = await fs.readFile(databasePath);
     const result = readPlexMetadata(databasePath, 'win32');
@@ -71,9 +78,13 @@ test('reuses exact Plex file associations, TV hierarchy and manual titles withou
     const movie = result.byPath.get('c:\\movies\\meaningless.mkv');
     assert.equal(movie.title, 'Manually Corrected Movie');
     assert.equal(movie.year, 1999);
+    assert.equal(movie.plex.imdbId, 'tt0103639');
+    assert.equal(movie.plex.artwork.thumb, 'metadata://posters/selected');
     assert.equal(movie.plex.titleKey, result.byPath.get('c:\\movies\\second-version.mkv').plex.titleKey);
     const episode = result.byPath.get('c:\\tv\\meaningless.mp4');
     assert.equal(episode.title, 'Correct Show');
+    assert.equal(episode.plex.imdbId, 'tt12345');
+    assert.equal(episode.plex.artwork.type, 'tv');
     assert.equal(episode.year, 2005);
     assert.equal(episode.season, 0);
     assert.equal(episode.episode, 3);

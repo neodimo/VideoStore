@@ -87,9 +87,10 @@ function createLanServer(handlers, options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/catalog') return send(response, 200, await handlers.catalog(url.searchParams.get('q') || ''));
       if (request.method === 'GET' && url.pathname === '/api/candidates') return send(response, 200, await handlers.candidates(url.searchParams.get('refresh') === '1'));
       if (request.method === 'GET' && url.pathname === '/api/jobs') return send(response, 200, handlers.jobs());
-      if (request.method === 'GET' && /^\/api\/poster\/tt\d+$/.test(url.pathname)) {
-        const art = await handlers.poster(url.pathname.split('/').at(-1));
-        if (!art) return send(response, 404, { error: 'No RatingPosterDB override' });
+      if (request.method === 'GET' && (/^\/api\/poster\/tt\d+$/.test(url.pathname) || /^\/api\/library-poster\/[A-Za-z0-9_-]{1,100}$/.test(url.pathname))) {
+        const libraryArt = url.pathname.startsWith('/api/library-poster/');
+        const art = await (libraryArt ? handlers.libraryPoster?.(url.pathname.split('/').at(-1)) : handlers.poster(url.pathname.split('/').at(-1)));
+        if (!art) return send(response, 404, { error: 'No artwork available' });
         const match = art.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
         if (!match) return send(response, 502, { error: 'Invalid artwork response' });
         response.writeHead(200, { 'content-type': match[1], 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });

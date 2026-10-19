@@ -64,6 +64,8 @@ test('paired library keeps navigation while drilling show → season → episode
   const tick=()=>new Promise(r=>setImmediate(r));await tick();
   const d=dom.window.document;
   assert.equal(d.querySelectorAll('.library-tile').length,1);
+  const art=d.querySelector('.library-art img');assert.match(art.src,/\/api\/library-poster\/1$/);art.dispatchEvent(new dom.window.Event('load'));
+  assert.equal(d.querySelector('.library-info .media-kind').textContent,'SERIES');
   assert.doesNotMatch(d.querySelector('#host-library').textContent,/raw-file/);
   d.querySelector('.library-open').click();await tick();assert.match(d.querySelector('#host-library').textContent,/Season 1/);
   d.querySelector('.library-open').click();await tick();assert.equal(d.querySelectorAll('.library-tile').length,2);

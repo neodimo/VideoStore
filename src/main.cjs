@@ -16,6 +16,8 @@ const { createMediaController } = require('./media-controller.cjs');
 const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
 const { discoverPlexLibraries, readPlexMetadata, plexPathKey, applyPlexMetadata } = require('./plex.cjs');
+const { createPlexSync } = require('./plex-sync.cjs');
+const { plexPoster } = require('./plex-artwork.cjs');
 const { listHostLibrary } = require('./host-library.cjs');
 const { openSshTunnel, validateConfig } = require('./ssh-tunnel.cjs');
 
@@ -27,6 +29,7 @@ let scanCancelled = false;
 let mediaController;
 let lanServer;
 let remoteWindow;
+let plexSync;
 let saveChain = Promise.resolve();
 const posterPending = new Map();
 let library = { version: 1, items: [], destinations: [], jobs: [], lanEnabled: false, sshKnownHosts: {}, preferences: { hdr: true, surround: true, highBitrate: true } };
@@ -77,6 +80,12 @@ async function posterFor(id) {
   return posterPending.get(id);
 }
 
+async function libraryPosterFor(id) {
+  const item = typeof id === 'string' && getItem(id);
+  if (!item) return null;
+  return await plexPoster(item.plex?.artwork) || (item.plex?.imdbId ? await posterFor(item.plex.imdbId) : null);
+}
+
 async function probe(filePath) {
   try {
     const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', filePath], {
@@ -91,6 +100,9 @@ async function addFiles(filePaths, options = {}) {
   const errors = [];
   let updated = 0;
   let matched = 0;
+  if (!options.plexMetadata) {
+    try { options.plexMetadata = readPlexMetadata().byPath; } catch { /* Filename-only until Plex is available; never claim a match. */ }
+  }
   const knownPaths = new Map(library.items.map(item => [plexPathKey(item.path), item]));
   for (const filePath of filePaths) {
     if (options.shouldCancel?.()) break;
@@ -173,6 +185,16 @@ app.whenReady().then(async () => {
   } catch (error) { if (error.code !== 'ENOENT') console.error('Library load failed:', error); }
   for (const item of library.items) item.rank = score(item.quality, library.preferences);
 
+  plexSync = createPlexSync({
+    getLibrary: () => library, readMetadata: readPlexMetadata, addFiles, save,
+    onSynced: result => { if (result.updated || result.added) for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:changed'); },
+    backup: async () => { await save(); await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`); }
+  });
+  await plexSync.sync();
+  const syncTimer = setInterval(() => { void plexSync.sync(); }, 60_000);
+  syncTimer.unref();
+  app.once('before-quit', () => clearInterval(syncTimer));
+
   mediaController = createMediaController({
     getToken: readProviderToken,
     getDestinations: () => library.destinations,
@@ -183,7 +205,8 @@ app.whenReady().then(async () => {
   });
   lanServer = createLanServer({
     status: async () => ({ artworkConfigured: (await providerStatus()).artwork.configured, providers: ['real-debrid', 'torbox'], configuredDestinations: library.destinations.length, libraryFiles: library.items.length }),
-    library: (query, offset, limit, selection) => listHostLibrary(library.items, query, offset, limit, selection),
+    library: async (query, offset, limit, selection) => { await plexSync.sync(); return listHostLibrary(library.items, query, offset, limit, selection); },
+    libraryPoster: libraryPosterFor,
     catalog: searchCatalog,
     candidates: mediaController.refreshCandidates,
     jobs: mediaController.visibleJobs,
@@ -193,7 +216,8 @@ app.whenReady().then(async () => {
     poster: posterFor
   });
 
-  ipcMain.handle('library:list', () => library);
+  ipcMain.handle('library:list', async () => { await plexSync.sync(); return library; });
+  ipcMain.handle('artwork:library', (_event, id) => libraryPosterFor(id));
   ipcMain.handle('catalog:search', async (_event, query) => {
     if (typeof query !== 'string' || query.length > 100) throw new Error('Search must be 100 characters or fewer');
     return searchCatalog(query);
@@ -273,28 +297,7 @@ app.whenReady().then(async () => {
     return destination;
   });
   ipcMain.handle('plex:preview', () => discoverPlexLibraries());
-  ipcMain.handle('plex:refresh', async () => {
-    // Refresh already indexed identities without rescanning or stat-ing thousands of files.
-    const metadata = readPlexMetadata();
-    await save();
-    await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`);
-    let matched = 0;
-    let updated = 0;
-    let inferred = 0;
-    for (const item of library.items) {
-      const association = metadata.byPath.get(plexPathKey(item.path));
-      if (association) { matched++; if (applyPlexMetadata(item, association)) updated++; }
-      else if (!item.plex && !metadata.ambiguousPaths.has(plexPathKey(item.path))) {
-        const parsed = parseName(item.filename || item.path);
-        if (parsed.type === 'tv' && (item.type !== 'tv' || item.season !== parsed.season || item.episode !== parsed.episode)) {
-          Object.assign(item, {type:parsed.type,title:parsed.title,season:parsed.season,episode:parsed.episode});
-          inferred++;
-        }
-      }
-    }
-    if (updated || inferred) await save();
-    return { matched, updated, inferred, ambiguous: metadata.ambiguous, files: library.items.length };
-  });
+  ipcMain.handle('plex:refresh', () => plexSync.sync(true));
   ipcMain.handle('plex:import', async event => {
     const roots = await discoverPlexLibraries();
     const available = roots.filter(root => root.available);

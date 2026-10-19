@@ -1,3 +1,4 @@
+let libraryPosterObserver;
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '"': '&quot;', '>': '&gt;', "'": '&#39;' })[character]);
 const size = value => Number.isFinite(value) ? `${(value / 1_000_000_000).toFixed(1)} GB` : 'Size unknown';
@@ -40,6 +41,7 @@ function navigateLibrary(key = null, season = null) {
   loadHostLibrary();
 }
 function renderHostLibrary() {
+  libraryPosterObserver?.disconnect();
   const label = {titles:'titles',seasons:'seasons',episodes:'episodes',versions:'versions'}[hostLibrary.level] || 'titles';
   $('#library-count').textContent = `· ${hostLibrary.total.toLocaleString()} ${label}`;
   const crumbs = hostLibrary.crumbs || [{label:'Library',key:null,season:null}];
@@ -50,8 +52,12 @@ function renderHostLibrary() {
     const kind = item.kind || 'title';
     const summary = kind === 'season' ? `${item.episodeCount} episodes` : kind === 'episode' ? `Episode ${item.episode ?? '?'} · ${item.versionCount} versions` : item.type === 'tv' ? `${item.seasonCount} seasons · ${item.episodeCount} episodes` : `${item.year || 'Year unknown'} · ${item.versionCount || item.versions?.length || 1} versions`;
     const badge = kind === 'season' ? 'SEASON' : kind === 'episode' ? 'EPISODE' : item.type === 'tv' ? 'SERIES' : 'MOVIE';
-    return `<article class="library-tile"><button class="library-open" data-index="${index}"><div class="library-art">${badge}</div><div class="library-info"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(summary)}</small></div></button>${kind === 'episode' ? `<div class="episode-versions" hidden>${item.versions.map(v => `<div class="version-row"><b>${escapeHtml(v.filename)}</b><small>${escapeHtml(v.resolution || 'Resolution unknown')} · ${size(v.sizeBytes)} · ${escapeHtml(v.probeStatus || 'Not inspected')}</small></div>`).join('')}</div>` : ''}</article>`;
+    return `<article class="library-tile"><button class="library-open" data-index="${index}"><div class="library-art"><span class="poster-fallback">${escapeHtml(item.title)}</span><img alt="" loading="lazy" hidden></div><div class="library-info"><b>${escapeHtml(item.title)}</b><small>${escapeHtml(summary)}</small><span class="media-kind">${badge}</span></div></button>${kind === 'episode' ? `<div class="episode-versions" hidden>${item.versions.map(v => `<div class="version-row"><b>${escapeHtml(v.filename)}</b><small>${escapeHtml(v.resolution || 'Resolution unknown')} · ${size(v.sizeBytes)} · ${escapeHtml(v.probeStatus || 'Not inspected')}</small></div>`).join('')}</div>` : ''}</article>`;
   }).join('') : '<p class="empty">No matching titles on the media PC. Import its Plex folders in the host app if the library is empty.</p>';
+  libraryPosterObserver = window.VideoStorePosters.observe(document.querySelectorAll('.library-open'), button => {
+    const item = hostLibrary.items[Number(button.dataset.index)];
+    return window.VideoStorePosters.load(button.querySelector('img'), { primary: item.artworkId ? () => `/api/library-poster/${encodeURIComponent(item.artworkId)}` : null, fallback: window.VideoStorePosters.fallback(item.imdbId) });
+  });
   document.querySelectorAll('.library-open').forEach(button => button.addEventListener('click', () => {
     const item = hostLibrary.items[Number(button.dataset.index)];
     if (item.kind === 'episode') { const panel = button.parentElement.querySelector('.episode-versions'); panel.hidden = !panel.hidden; button.setAttribute('aria-expanded', String(!panel.hidden)); }

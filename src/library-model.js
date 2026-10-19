@@ -8,6 +8,7 @@
   const episodeKey = i => `${titleKey(i)}:${i.season ?? ''}:${i.episode ?? ''}`;
   const numeric = (a,b) => (a == null ? Infinity : a)-(b == null ? Infinity : b);
   const seasonName = n => n === 0 ? 'Specials' : n == null ? 'Unsorted episodes' : `Season ${n}`;
+  const artwork = items => { const item = items.find(i => i.plex?.artwork?.thumb) || items.find(i => i.plex?.imdbId) || items[0]; return { artworkId: item?.id || null, imdbId: item?.plex?.imdbId || null }; };
   function groups(items) {
     const rows = new Map();
     for (const i of items) {
@@ -46,15 +47,15 @@
         const n=selection.season==='unknown'?null:Number(selection.season);
         const entries=seasons(g).find(([s])=>s===n)?.[1]||[];
         crumbs.push({label:seasonName(n),key:g.key,season:n==null?'unknown':n});level='episodes';
-        rows=episodes(entries).map(([key,files])=>({kind:'episode',key,detailKey:key,
+        rows=episodes(entries).map(([key,files])=>({...artwork(files),kind:'episode',key,detailKey:key,
           title:files[0].episodeTitle||(files[0].episode==null?'Unsorted episode':`Episode ${files[0].episode}`),
           type:'tv',season:n,episode:files[0].episode??null,versionCount:files.length,versions:versions(files)}));
-      }else{level='seasons';rows=seasons(g).map(([n,files])=>({kind:'season',key:g.key,season:n==null?'unknown':n,title:seasonName(n),episodeCount:episodes(files).length}));}
+      }else{level='seasons';rows=seasons(g).map(([n,files])=>({...artwork(files),kind:'season',key:g.key,season:n==null?'unknown':n,title:seasonName(n),episodeCount:episodes(files).length}));}
     }else{
       if(term)titles=titles.filter(g=>g.items.some(i=>`${i.title||''} ${i.episodeTitle||''} ${i.filename||''} ${i.edition||''}`.toLowerCase().includes(term)));
       if (selection.sort === 'quality') titles.sort((a,b)=>Math.max(...b.items.map(i=>i.rank?.points||0))-Math.max(...a.items.map(i=>i.rank?.points||0)));
       if (selection.sort === 'recent') titles.sort((a,b)=>b.items.reduce((n,i)=>i.addedAt>n?i.addedAt:n,'').localeCompare(a.items.reduce((n,i)=>i.addedAt>n?i.addedAt:n,'')));
-      rows=titles.map(g=>({kind:'title',key:g.key,detailKey:episodeKey(g.items[0]),title:g.title,year:g.year,type:g.type,
+      rows=titles.map(g=>({...artwork(g.items),kind:'title',key:g.key,detailKey:episodeKey(g.items[0]),title:g.title,year:g.year,type:g.type,
         seasonCount:g.type==='tv'?seasons(g).length:0,episodeCount:g.type==='tv'?episodes(g.items).length:0,
         versionCount:g.type==='movie'?g.items.length:undefined,versions:g.type==='movie'?versions(g.items):undefined}));
     }

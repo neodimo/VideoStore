@@ -65,5 +65,13 @@
   function fallback(id, supplied) {
     return supplied || (/^tt\d+$/.test(id) ? `https://images.metahub.space/poster/medium/${id}/img` : null);
   }
-  root.VideoStorePosters = { load, fallback };
+  function observe(tiles, loadPoster) {
+    if (typeof root.IntersectionObserver !== 'function') { tiles.forEach(loadPoster); return null; }
+    const observer = new root.IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) { observer.unobserve(entry.target); loadPoster(entry.target); }
+    }, { rootMargin: '300px' });
+    tiles.forEach(tile => observer.observe(tile));
+    return observer;
+  }
+  root.VideoStorePosters = { load, fallback, observe };
 })(globalThis);

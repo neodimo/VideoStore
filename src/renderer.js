@@ -5,6 +5,7 @@ let librarySelection = {key:null,season:null,offset:0};
 let catalogItems = [];
 let catalogQueryTimer;
 let catalogPosterObserver;
+let libraryPosterObserver;
 let providers = { secureStorage: false, artwork: { configured: false }, providers: [] };
 let destinations = [];
 let plexRoots = null;
@@ -39,6 +40,8 @@ function groups() {
 
 
 function render() {
+  libraryPosterObserver?.disconnect();
+  catalogPosterObserver?.disconnect();
   const names = { all: 'Your library', discover: 'Discover', providers: 'Providers', storage: 'Storage', account: 'Account files', network: 'Network host', movie: 'Movies', tv: 'TV shows', watchlist: 'Watchlist', unwatched: 'Unwatched' };
   $('#view-heading').textContent = names[view];
   $('#crumb').textContent = names[view];
@@ -54,15 +57,19 @@ function render() {
   $('#search').placeholder = view === 'discover' ? 'Search movies and TV shows…' : 'Search titles, files, editions…';
   if (view === 'discover') { renderCatalog(); return; }
   const found = window.VideoStoreLibrary.browse(library.items, $('#search').value, librarySelection.offset, 60, {...librarySelection,view,sort:$('#sort').value});
-  $('#count').textContent = `${found.total} ${found.level} · ${library.items.length} files`;
+  $('#count').textContent = `${found.total} ${found.level} · ${library.items.length} files${library.plexSync?.state === 'unavailable' ? ' · Plex refresh unavailable' : ''}`;
   $('#library-breadcrumbs').hidden = false;
   $('#library-breadcrumbs').innerHTML = found.crumbs.map((c,index) => `<button class="secondary" data-crumb="${index}">${escapeHtml(c.label)}</button>`).join(' / ');
   document.querySelectorAll('[data-crumb]').forEach(b => b.addEventListener('click', () => {const c=found.crumbs[Number(b.dataset.crumb)]; librarySelection={key:c.key,season:c.season,offset:0}; closeDetails();render();}));
   $('#grid').innerHTML = found.items.length ? found.items.map((item,index) => {
     const label = item.kind === 'season' ? 'SEASON' : item.kind === 'episode' ? 'EPISODE' : item.type === 'tv' ? 'SERIES' : 'MOVIE';
     const summary = item.kind === 'season' ? `${item.episodeCount} episodes` : item.kind === 'episode' ? `Episode ${item.episode ?? '?'} · ${item.versionCount} versions` : item.type === 'tv' ? `${item.seasonCount} seasons · ${item.episodeCount} episodes` : `${item.year || 'Year unknown'} · ${item.versionCount} versions`;
-    return `<button class="tile" data-index="${index}" data-key="${escapeHtml(item.detailKey || item.key)}"><div class="poster"><span>${escapeHtml(item.title)}</span></div><div class="tile-info"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(summary)}</p><div class="tags"><span class="media-kind">${label}</span></div></div></button>`;
+    return `<button class="tile" data-index="${index}" data-key="${escapeHtml(item.detailKey || item.key)}"><div class="poster"><span class="poster-fallback">${escapeHtml(item.title)}</span><img alt="" loading="lazy" hidden></div><div class="tile-info"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(summary)}</p><div class="tags"><span class="media-kind">${label}</span></div></div></button>`;
   }).join('') : `<div class="empty"><b>${library.items.length ? 'Nothing matches this view' : 'Your collection starts here'}</b><div>Add videos or import the host’s Plex library.</div>${library.items.length ? '' : '<button class="primary" id="empty-add">＋ Add videos</button>'}</div>`;
+  libraryPosterObserver = window.VideoStorePosters.observe(document.querySelectorAll('.tile'), tile => {
+    const item = found.items[Number(tile.dataset.index)];
+    return window.VideoStorePosters.load(tile.querySelector('img'), { primary: () => window.videostore.libraryPosterFor?.(item.artworkId), fallback: window.VideoStorePosters.fallback(item.imdbId) });
+  });
   document.querySelectorAll('.tile').forEach(tile => tile.addEventListener('click', () => {
     const item=found.items[Number(tile.dataset.index)];
     if (item.kind === 'season') {librarySelection={key:item.key,season:item.season,offset:0};render();}
@@ -83,7 +90,7 @@ function formatSpace(value) { return Number.isFinite(value) ? `${(value / 1_000_
 function renderStorage() {
   $('#count').textContent = `${destinations.length} managed folder${destinations.length === 1 ? '' : 's'} · capacity checked on the host OS`;
   $('#grid').innerHTML = `<div class="provider-panel storage-panel"><h3>Plex library destinations</h3><p>Add existing movie and TV folders. VideoStore does not move or write files during setup. The default free-space floor is the greater of 10% of a drive or 500 GiB; adjust it per folder. Placement previews need an exact file size.</p><div class="detail-actions"><button class="secondary" id="plex-refresh">Refresh Plex matches</button><button class="primary" id="plex-preview" ${plexBusy ? 'disabled' : ''}>Find Plex folders</button><button class="secondary" id="add-movie-folder">＋ Movie folder</button><button class="secondary" id="add-tv-folder">＋ TV folder</button></div>${plexRoots ? `<div class="detail-section"><h3>PLEX FOLDERS ON THIS PC</h3><p>These are read from Plex’s local library database. Import registers the folders as download destinations and indexes existing videos by path; it does not copy, move, or delete media.</p>${plexRoots.map(root => `<div class="fact"><span>${escapeHtml(root.name)} · ${root.type === 'movie' ? 'Movies' : 'TV'}${root.available ? '' : ' · Unavailable'}</span><span>${escapeHtml(root.path)}</span></div>`).join('') || '<div class="notice">No Plex movie or TV folders found.</div>'}${plexRoots.some(root => root.available) ? `<button class="primary" id="plex-import" ${plexBusy ? 'disabled' : ''}>Import folders & index videos</button>` : ''}</div>` : ''}<div id="destination-list">${destinations.map(item => `<section class="destination"><div><strong>${escapeHtml(item.label)} · ${item.type === 'movie' ? 'Movies' : 'TV'}</strong><small>${escapeHtml(item.path)}</small><small>${item.available ? `${formatSpace(item.freeBytes)} free of ${formatSpace(item.totalBytes)}` : `Unavailable: ${escapeHtml(item.error || 'unknown')}`}</small></div><form class="floor-form" data-id="${escapeHtml(item.id)}"><label>Floor % <input name="percent" type="number" min="0" max="90" step="1" value="${item.reservePercent}"></label><label>Floor GiB <input name="gib" type="number" min="0" max="100000" step="1" value="${Math.round(item.reserveBytes / 1073741824)}"></label><button class="secondary">Save floor</button><button type="button" class="secondary danger remove-folder">Remove</button></form></section>`).join('')}</div><form id="plan-form" class="plan-form"><h3>Preview a placement</h3><select name="type" aria-label="Media type"><option value="movie">Movie</option><option value="tv">TV episode/show</option></select><input name="gigabytes" type="number" min="0.001" step="0.001" placeholder="Exact size in GB" aria-label="File size in decimal GB" required><button class="primary">Preview space</button></form><div id="plan-results"></div></div>`;
-  $('#plex-refresh').addEventListener('click', () => run(async () => { const result = await window.videostore.plexRefresh(); await refresh(); status(`${result.updated} entries refreshed from Plex; ${result.ambiguous} ambiguous paths left unchanged.`); }, ''));
+  $('#plex-refresh').addEventListener('click', () => run(async () => { const result = await window.videostore.plexRefresh(); await refresh(); status(`${result.updated} entries refreshed, ${result.added || 0} new files indexed from Plex; ${result.ambiguous} ambiguous paths left unchanged.`); }, ''));
   $('#plex-preview').addEventListener('click', loadPlexPreview);
   $('#plex-import')?.addEventListener('click', importPlex);
   $('#add-movie-folder').addEventListener('click', () => addDestination('movie'));
@@ -344,6 +351,7 @@ $('#add').addEventListener('click', add);
 $('#hero-add').addEventListener('click', add);
 $('#scan-folder').addEventListener('click', scanFolder);
 $('#plex').addEventListener('click', () => { view = 'storage'; closeDetails(); render(); loadStorage(); loadPlexPreview(); });
+window.videostore.onLibraryChanged?.(() => { void refresh(); });
 window.videostore.onScanProgress?.(progress => { if (scanActive) status(`${progress.root ? `${progress.root} (${progress.rootIndex}/${progress.rootTotal}) · ` : ''}${progress.found} video files found…`); });
 window.videostore.onMediaJobs?.(jobs => { mediaJobs = jobs; if (view === 'account') renderMedia(); });
 window.videostore.onLanDiscoveryProgress?.(({ done, total }) => {

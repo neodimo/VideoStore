@@ -1,6 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('videostore', {
+  onLibraryChanged: callback => {
+    const handler = () => callback();
+    ipcRenderer.on('library:changed', handler);
+    return () => ipcRenderer.removeListener('library:changed', handler);
+  },
   list: () => ipcRenderer.invoke('library:list'),
   add: () => ipcRenderer.invoke('library:add'),
   addFolder: () => ipcRenderer.invoke('library:addFolder'),
@@ -19,6 +24,7 @@ contextBridge.exposeInMainWorld('videostore', {
   providerStatus: () => ipcRenderer.invoke('provider:status'),
   configureProvider: (id, token) => ipcRenderer.invoke('provider:configure', id, token),
   configureArtwork: key => ipcRenderer.invoke('artwork:configure', key),
+  libraryPosterFor: id => ipcRenderer.invoke('artwork:library', id),
   posterFor: id => ipcRenderer.invoke('artwork:poster', id),
   mediaCandidates: force => ipcRenderer.invoke('media:candidates', Boolean(force)),
   mediaPlan: ids => ipcRenderer.invoke('media:plan', ids),

@@ -144,12 +144,17 @@ test('Plex import shows source folders before indexing and updates destinations'
 test('local TV library shows a series once, then seasons and episodes with a persistent rail', async () => {
   const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'});
   const items=[1,2].map(n=>{const parsed=parseName(`/library/Show.S01E0${n}.mkv`),quality=probeQuality(parsed,null,1000);return{...parsed,id:String(n),episodeTitle:`Chapter ${n}`,quality,rank:score(quality),addedAt:'2026-01-01'};});
-  dom.window.videostore={list:async()=>({items,preferences:{}})};
+  const artworkRequests=[];
+  dom.window.videostore={list:async()=>({items,preferences:{}}),libraryPosterFor:async id=>{artworkRequests.push(id);return 'data:image/jpeg;base64,/9j/2Q==';}};
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/library-model.js'),'utf8'));
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/poster-loader.js'),'utf8'));
   dom.window.eval(fs.readFileSync(path.join(__dirname,'../src/renderer.js'),'utf8'));
   await new Promise(r=>setImmediate(r));const d=dom.window.document;
-  assert.equal(d.querySelectorAll('.tile').length,1);d.querySelector('.tile').click();
+  assert.equal(d.querySelectorAll('.tile').length,1);
+  assert.deepEqual(artworkRequests,['1']);
+  const art=d.querySelector('.tile img');assert.match(art.src,/^data:image\/jpeg/);art.dispatchEvent(new dom.window.Event('load'));
+  assert.equal(d.querySelector('.media-kind').textContent,'SERIES');
+  d.querySelector('.tile').click();
   assert.match(d.querySelector('#grid').textContent,/Season 1/);d.querySelector('.tile').click();
   assert.equal(d.querySelectorAll('.tile').length,2);assert.match(d.querySelector('#grid').textContent,/Chapter 1/);
   assert.ok(d.querySelector('#navigation'));assert.equal(d.querySelector('.rail').hidden,false);
