@@ -82,7 +82,7 @@ async function loadHostLibrary(more = false) {
 }
 
 function renderCatalog() {
-  $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong class="poster-fallback">${escapeHtml(item.name)}</strong><img alt="" loading="lazy" hidden></div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')} · ${item.type === 'series' ? 'Series' : 'Movie'}</p><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
+  $('#catalog').innerHTML = catalog.length ? catalog.map(item => `<article class="poster-tile" data-id="${escapeHtml(item.id)}"><div class="poster"><strong class="poster-fallback">${escapeHtml(item.name)}</strong><img alt="" loading="lazy" hidden></div><div class="info"><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.year || 'Year unknown')}${item.genres?.length ? ` · ${escapeHtml(item.genres.slice(0,2).join(' / '))}` : ''}</p><span class="media-kind">${item.type === 'series' ? 'SERIES' : 'MOVIE'}</span><button>Find account files</button></div></article>`).join('') : '<p class="empty">No catalog titles found.</p>';
   document.querySelectorAll('.poster-tile').forEach(tile => tile.querySelector('button').addEventListener('click', () => {
     const item = catalog.find(row => row.id === tile.dataset.id);
     setView('account');
@@ -129,7 +129,7 @@ async function loadJobs() {
   } catch (error) { notice(error.message, true); }
 }
 
-$('#pair-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/pair', { method: 'POST', body: JSON.stringify({ code: event.currentTarget.elements.code.value }) }); showWorkspace(); await initialize(); } catch (error) { notice(error.message, true); } });
+$('#pair-form').addEventListener('submit', async event => { event.preventDefault(); try { await api('/api/pair', { method: 'POST', body: JSON.stringify({ code: event.currentTarget.elements.code.value, remember: Boolean(window.VideoStoreConnection) }) }); showWorkspace(); await initialize(); } catch (error) { notice(error.message, true); } });
 $('#catalog-search').addEventListener('input', () => { clearTimeout(catalogTimer); catalogTimer = setTimeout(() => loadCatalog($('#catalog-search').value), 350); });
 $('#library-search').addEventListener('input', () => { librarySelection.key=null; librarySelection.season=null; clearTimeout(libraryTimer); libraryTimer=setTimeout(() => loadHostLibrary(),300); });
 $('#remote-navigation').addEventListener('click', e => { const b=e.target.closest('[data-view]'); if(b) setView(b.dataset.view); });
@@ -139,6 +139,6 @@ $('#refresh-candidates').addEventListener('click', () => loadCandidates(true));
 $('#preview').addEventListener('click', async () => { try { plan = await api('/api/plan', { method: 'POST', body: JSON.stringify({ ids: cart.map(item => item.id) }) }); renderPlan(); notice('Review every folder and post-download free-space value before sending.'); } catch (error) { notice(error.message, true); } });
 $('#submit').addEventListener('click', async () => { try { const result = await api('/api/submit', { method: 'POST', body: JSON.stringify({ planId: plan.planId }) }); cart = []; plan = null; renderCart(); await loadJobs(); notice(`${result.jobIds.length} download job${result.jobIds.length === 1 ? '' : 's'} sent to the host. No files came from this laptop.`); } catch (error) { notice(error.message, true); } });
 
-async function initialize() { hostStatus = await api('/api/status'); showWorkspace(); await Promise.all([loadHostLibrary(), loadCatalog(), loadCandidates(), loadJobs()]); }
+async function initialize() { hostStatus = await api('/api/status'); showWorkspace(); if (window.VideoStoreConnection) { const saved = await window.VideoStoreConnection.paired(); if (saved?.message) notice(saved.message); } await Promise.all([loadHostLibrary(), loadCatalog(), loadCandidates(), loadJobs()]); }
 setInterval(() => { if (!$('#workspace').hidden) loadJobs(); }, 3000);
 initialize().catch(() => showPairing());

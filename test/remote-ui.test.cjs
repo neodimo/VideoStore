@@ -79,3 +79,21 @@ test('paired library keeps navigation while drilling show → season → episode
   for(const view of ['discover','account','cart','jobs','all']){d.querySelector(`[data-view="${view}"]`).click();await tick();assert.ok(d.querySelector('#remote-navigation'));assert.equal(d.querySelector('.rail').hidden,false);}
   dom.window.close();
 });
+
+test('desktop pairing requests restart persistence and remembers the host only after authentication',async()=>{
+ const dom=new JSDOM(fs.readFileSync(path.join(__dirname,'../src/remote.html'),'utf8'),{url:'http://127.0.0.1:43879/',runScripts:'outside-only'});
+ let paired=false,remembered=0;
+ dom.window.VideoStoreConnection={paired:async()=>{assert.equal(paired,true);remembered++;return{remembered:true}}};
+ dom.window.fetch=async(route,options={})=>{
+  if(route==='/api/pair'){assert.equal(JSON.parse(options.body).remember,true);paired=true;return{ok:true,json:async()=>({paired:true})}}
+  if(route==='/api/status')return{ok:paired,status:paired?200:401,json:async()=>paired?{}:{error:'Pair first'}};
+  return{ok:true,json:async()=>route.startsWith('/api/library')?{items:[],total:0}:route.startsWith('/api/candidates')?{items:[]}:[]};
+ };
+ try {
+  for(const file of ['poster-loader.js','remote.js'])dom.window.eval(fs.readFileSync(path.join(__dirname,'../src',file),'utf8'));
+  await new Promise(r=>setImmediate(r));assert.equal(remembered,0);
+  dom.window.document.querySelector('[name="code"]').value='123456';
+  dom.window.document.querySelector('#pair-form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  await new Promise(r=>setImmediate(r));assert.equal(remembered,1);assert.equal(dom.window.document.querySelector('#workspace').hidden,false);
+ } finally {dom.window.close()}
+});

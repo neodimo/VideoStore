@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage, session } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
@@ -19,6 +19,7 @@ const { discoverPlexLibraries, readPlexMetadata, plexPathKey, applyPlexMetadata 
 const { createPlexSync } = require('./plex-sync.cjs');
 const { plexPoster } = require('./plex-artwork.cjs');
 const { listHostLibrary } = require('./host-library.cjs');
+const { connectionRecord, partitionFor, locatePrimary } = require('./primary-host.cjs');
 const { openSshTunnel, validateConfig } = require('./ssh-tunnel.cjs');
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +30,12 @@ let scanCancelled = false;
 let mediaController;
 let lanServer;
 let remoteWindow;
+let localWindow;
+let remoteContext;
+let quitting = false;
+let reconnecting;
+let primaryAttempt = 0;
+let primaryState = { state:'none' };
 let plexSync;
 let saveChain = Promise.resolve();
 const posterPending = new Map();
@@ -56,6 +63,16 @@ async function saveProviderToken(id, token) {
   const temporary = `${secretsPath}.tmp`;
   await fs.writeFile(temporary, JSON.stringify(secrets), { mode: 0o600 });
   await fs.rename(temporary, secretsPath);
+}
+
+async function deleteProviderToken(id) {
+  let secrets;
+  try { secrets = JSON.parse(await fs.readFile(secretsPath, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+  if (!Object.hasOwn(secrets,id)) return;
+  delete secrets[id];
+  const temporary = `${secretsPath}.tmp`;
+  await fs.writeFile(temporary, JSON.stringify(secrets), {mode:0o600});
+  await fs.rename(temporary,secretsPath);
 }
 
 async function readProviderToken(id) {
@@ -147,12 +164,14 @@ async function createWindow() {
       contextIsolation: true, nodeIntegration: false, sandbox: true
     }
   });
+  localWindow = win;
+  win.on('closed', () => { if (localWindow === win) localWindow = null; });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   await win.loadFile(path.join(__dirname, 'index.html'));
 }
 
-async function openRemoteWindow(candidate, tunnel = null) {
+async function openRemoteWindow(candidate, tunnel = null, connection = {kind:'lan'}) {
   const origin = `http://${candidate.host}:${candidate.port}`;
   if (remoteWindow && !remoteWindow.isDestroyed()) remoteWindow.close();
   const win = new BrowserWindow({
@@ -160,10 +179,11 @@ async function openRemoteWindow(candidate, tunnel = null) {
     title: `VideoStore · ${candidate.name || candidate.host}`,
     icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#0b0f18',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: { preload:path.join(__dirname, 'remote-preload.cjs'), partition:partitionFor(candidate.id || `${connection.kind}:${connection.host || candidate.host}`), contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   remoteWindow = win;
-  win.on('closed', () => { tunnel?.close(); if (remoteWindow === win) remoteWindow = null; });
+  remoteContext = { win, candidate, connection, origin };
+  win.on('closed', () => { tunnel?.close(); if (remoteWindow === win) { remoteWindow = null; remoteContext = null; if (!quitting && localWindow && !localWindow.isDestroyed()) localWindow.show(); } });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, target) => {
     if (!target.startsWith(`${origin}/`)) event.preventDefault();
@@ -171,8 +191,37 @@ async function openRemoteWindow(candidate, tunnel = null) {
   win.webContents.on('will-redirect', (event, target) => {
     if (!target.startsWith(`${origin}/`)) event.preventDefault();
   });
-  try { await win.loadURL(origin); } catch (error) { win.close(); throw error; }
+  setPrimaryState({state:'pairing',message:`Opening ${candidate.name || candidate.host}; pair if prompted.`});
+  try { await win.loadURL(origin); localWindow?.hide(); } catch (error) { win.close(); throw error; }
   return true;
+}
+
+function setPrimaryState(state) {
+  primaryState = { ...state, primary:library.primaryHost ? {name:library.primaryHost.name,kind:library.primaryHost.kind,host:library.primaryHost.host} : null };
+  if (localWindow && !localWindow.isDestroyed()) localWindow.webContents.send('primary:status', primaryState);
+  return primaryState;
+}
+
+async function reconnectPrimary() {
+  if (reconnecting) return reconnecting;
+  if (!library.primaryHost) return setPrimaryState({state:'none'});
+  reconnecting = (async () => {
+    const record = library.primaryHost;
+    const attempt = ++primaryAttempt;
+    setPrimaryState({state:'connecting',message:`Connecting to ${record.name}…`});
+    try {
+      const { candidate, tunnel } = await locatePrimary(record, {
+        probe:probeHost, discover:discoverHosts, ssh:openSshTunnel, knownKeys:library.sshKnownHosts,
+        credentials:async()=>JSON.parse(await readProviderToken('primary-ssh') || '{}')
+      });
+      // Forget/change during discovery cancels this attempt, not the user's choice.
+      if (library.primaryHost !== record || attempt !== primaryAttempt) { tunnel?.close(); return primaryState; }
+      try { await openRemoteWindow(candidate, tunnel, {...record,restored:true}); }
+      catch (error) { tunnel?.close(); throw error; }
+      return primaryState;
+    } catch (error) { if (library.primaryHost !== record || attempt !== primaryAttempt) return primaryState; return setPrimaryState({state:'unavailable',message:error.message}); }
+  })().finally(()=>{ reconnecting=null; });
+  return reconnecting;
 }
 
 app.whenReady().then(async () => {
@@ -182,7 +231,8 @@ app.whenReady().then(async () => {
   try {
     const saved = JSON.parse(await fs.readFile(libraryPath, 'utf8'));
     if (saved.version === 1 && Array.isArray(saved.items)) library = { ...library, ...saved, destinations: Array.isArray(saved.destinations) ? saved.destinations : [] };
-  } catch (error) { if (error.code !== 'ENOENT') console.error('Library load failed:', error); }
+  } catch (error) { if (error.code !== 'ENOENT') { dialog.showErrorBox('Library unavailable', 'VideoStore could not read its saved library. No connection settings were changed.'); app.quit(); return; } }
+  if (!library.hostIdentity) { library.hostIdentity = crypto.randomUUID(); await save(); }
   for (const item of library.items) item.rank = score(item.quality, library.preferences);
 
   plexSync = createPlexSync({
@@ -214,7 +264,7 @@ app.whenReady().then(async () => {
     submit: mediaController.submit,
     cancel: mediaController.cancel,
     poster: posterFor
-  });
+  }, { identity:library.hostIdentity, pairedClients:library.pairedClients || [], savePairings:async clients=>{ library.pairedClients=clients; await save(); } });
 
   ipcMain.handle('library:list', async () => { await plexSync.sync(); return library; });
   ipcMain.handle('artwork:library', (_event, id) => libraryPosterFor(id));
@@ -245,15 +295,48 @@ app.whenReady().then(async () => {
   ipcMain.handle('media:cancel', (_event, id) => mediaController.cancel(id));
   ipcMain.handle('lan:status', () => ({ running: lanServer.running(), addresses: lanServer.addresses(), port: PORT }));
   ipcMain.handle('lan:start', async () => { const result = await lanServer.start(); library.lanEnabled = true; await save(); return { ...result, running: true, pairing: lanServer.pairCode() }; });
-  ipcMain.handle('lan:stop', async () => { await lanServer.stop(); library.lanEnabled = false; await save(); return { running: false }; });
+  ipcMain.handle('lan:stop', async () => { await lanServer.stop({revoke:true}); library.lanEnabled = false; await save(); return { running: false }; });
   ipcMain.handle('lan:pairCode', () => { if (!lanServer.running()) throw new Error('Network host is not running'); return lanServer.pairCode(); });
   ipcMain.handle('lan:discover', event => discoverHosts({ onProgress: (done, total) => event.sender.send('lan:discoveryProgress', { done, total }) }));
+  ipcMain.handle('primary:status', () => ({...primaryState,primary:library.primaryHost ? {name:library.primaryHost.name,kind:library.primaryHost.kind,host:library.primaryHost.host} : null}));
+  ipcMain.handle('primary:retry', () => reconnectPrimary());
+  ipcMain.handle('primary:forget', async () => {
+    primaryAttempt++;
+    const previous = library.primaryHost;
+    library.primaryHost = null;
+    await save();
+    await deleteProviderToken('primary-ssh');
+    if (previous?.id) await session.fromPartition(partitionFor(previous.id)).clearStorageData({storages:['cookies']});
+    if (remoteWindow && !remoteWindow.isDestroyed()) remoteWindow.close();
+    return setPrimaryState({state:'none'});
+  });
+  ipcMain.handle('primary:paired', async event => {
+    const context = remoteContext;
+    if (!context || event.sender !== context.win.webContents || event.senderFrame !== context.win.webContents.mainFrame) throw new Error('Not the connected library window');
+    const response = await event.sender.session.fetch(`${context.origin}/api/status`, {credentials:'include',redirect:'error',signal:AbortSignal.timeout(3000)});
+    if (!response.ok) throw new Error('Pair with this library before saving it');
+    try {
+      const record = connectionRecord(context.candidate, context.connection);
+      if (!context.connection.restored) {
+        const {password,passphrase} = context.connection;
+        if (record.kind === 'ssh' && (password || passphrase)) await saveProviderToken('primary-ssh', JSON.stringify({password,passphrase}));
+        else await deleteProviderToken('primary-ssh');
+      }
+      await event.sender.session.cookies.flushStore();
+      library.primaryHost = record;
+      await save();
+      setPrimaryState({state:'connected',message:`Connected to ${record.name}`});
+      return {remembered:true};
+    } catch (error) { return {remembered:false,message:`Connected, but automatic reconnection could not be saved: ${error.message}`}; }
+  });
   ipcMain.handle('lan:connect', async (_event, host) => {
+    primaryAttempt++;
     const candidate = await probeHost(host);
     if (!candidate) throw new Error('No VideoStore media host answered at that address');
     return openRemoteWindow(candidate);
   });
   ipcMain.handle('ssh:connect', async (_event, input) => {
+    primaryAttempt++;
     const config = validateConfig(input || {});
     const identity = `${config.host.toLowerCase()}:${config.port}`;
     const known = library.sshKnownHosts?.[identity];
@@ -266,7 +349,7 @@ app.whenReady().then(async () => {
     try {
       const candidate = await probeHost('127.0.0.1', { port: tunnel.port, timeoutMs: 3000, allowLoopback: true });
       if (!candidate) throw new Error('SSH connected, but VideoStore is not running at the forwarded host address');
-      await openRemoteWindow(candidate, tunnel);
+      await openRemoteWindow(candidate, tunnel, {kind:'ssh',...config,keyPath:input.keyPath || '',password:input.password || '',passphrase:input.passphrase || ''});
       if (!known) {
         library.sshKnownHosts ||= {};
         library.sshKnownHosts[identity] = tunnel.fingerprint;
@@ -419,7 +502,9 @@ app.whenReady().then(async () => {
   });
   if (library.lanEnabled) lanServer.start().catch(error => console.error('LAN host failed to start:', error.message));
   await createWindow();
+  if (library.primaryHost) void reconnectPrimary();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 
+app.on('before-quit', () => { quitting=true; });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

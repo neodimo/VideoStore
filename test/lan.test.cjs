@@ -29,3 +29,25 @@ test('LAN browser requires local host, same-origin pairing, and session before c
     assert.match(page, /Choose here\. Download there\./);
   } finally { await server.stop(); }
 });
+
+test('remembered pairing survives host restart using only token hashes; disable revokes it',async()=>{
+ let stored=[];
+ const identity='d7b1f040-8938-4840-9606-f1d35aba1cb8';
+ const handlers={status:async()=>({libraryFiles:123})};
+ const make=()=>createLanServer(handlers,{host:'127.0.0.1',identity,pairedClients:stored,savePairings:async values=>{stored=JSON.parse(JSON.stringify(values))}});
+ let server=make();let address;
+ try {
+  let {port}=await server.start(0);address=`http://127.0.0.1:${port}`;
+  assert.equal((await (await fetch(address+'/api/identity')).json()).id,identity);
+  const response=await fetch(address+'/api/pair',{method:'POST',headers:{origin:address,'content-type':'application/json'},body:JSON.stringify({code:server.pairCode().code,remember:true})});
+  assert.equal(response.status,200);const cookie=response.headers.get('set-cookie').split(';')[0];
+  assert.match(response.headers.get('set-cookie'),/Max-Age=2592000/);
+  assert.equal(stored.length,1);assert.match(stored[0].hash,/^[a-f0-9]{64}$/);assert.ok(!JSON.stringify(stored).includes(cookie.split('=')[1]));
+  await server.stop();server=make();({port}=await server.start(0));address=`http://127.0.0.1:${port}`;
+  assert.equal((await fetch(address+'/api/status',{headers:{cookie}})).status,200);
+  assert.equal((await fetch(address+'/api/status',{headers:{cookie:cookie+'wrong'}})).status,401);
+  await server.stop({revoke:true});assert.equal(stored.length,0);
+  server=make();({port}=await server.start(0));address=`http://127.0.0.1:${port}`;
+  assert.equal((await fetch(address+'/api/status',{headers:{cookie}})).status,401);
+ }finally{await server.stop()}
+});

@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 
 const SESSION_MS = 12 * 60 * 60_000;
+const REMEMBER_MS = 30 * 24 * 60 * 60_000;
 const PAIR_MS = 10 * 60_000;
 const root = __dirname;
 
@@ -35,6 +36,11 @@ async function jsonBody(request, limit = 16_384) {
 
 function createLanServer(handlers, options = {}) {
   const sessions = new Map();
+  for (const entry of options.pairedClients || []) {
+    if (/^[a-f0-9]{64}$/.test(entry.hash) && entry.expiresAt > Date.now()) sessions.set(entry.hash, { expiresAt:entry.expiresAt, remember:true });
+  }
+  const tokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
+  const savePairings = () => options.savePairings?.([...sessions].filter(([,s])=>s.remember && s.expiresAt > Date.now()).map(([hash,s])=>({hash,expiresAt:s.expiresAt})));
   const failures = new Map();
   let code = null;
   let codeExpires = 0;
@@ -54,7 +60,7 @@ function createLanServer(handlers, options = {}) {
     if (!trustedHost(request.headers.host)) return send(response, 403, { error: 'Host address is not a trusted private-network address' });
     const url = new URL(request.url, `http://${request.headers.host}`);
     if (request.method === 'GET' && url.pathname === '/api/identity')
-      return send(response, 200, { app: 'videostore', protocol: 1, name: os.hostname() });
+      return send(response, 200, { app: 'videostore', protocol: 1, name: os.hostname(), ...(options.identity ? { id:options.identity } : {}) });
     if (request.method === 'GET' && ['/', '/remote.js', '/poster-loader.js', '/remote.css', '/assets/vhs.svg'].includes(url.pathname)) {
       const filename = url.pathname === '/' ? 'remote.html' : url.pathname.slice(1);
       const mime = filename.endsWith('.html') ? 'text/html' : filename.endsWith('.js') ? 'text/javascript' : filename.endsWith('.svg') ? 'image/svg+xml' : 'text/css';
@@ -76,11 +82,19 @@ function createLanServer(handlers, options = {}) {
       failures.delete(address);
       code = null;
       const token = crypto.randomBytes(32).toString('base64url');
-      sessions.set(token, Date.now() + SESSION_MS);
-      return send(response, 200, { paired: true }, { 'set-cookie': `vs_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200` });
+      const remember = body.remember === true && Boolean(options.savePairings);
+      const duration = remember ? REMEMBER_MS : SESSION_MS;
+      const hash = tokenHash(token);
+      for (const [key,s] of sessions) if (s.expiresAt <= Date.now()) sessions.delete(key);
+      if (sessions.size >= 100) sessions.delete(sessions.keys().next().value);
+      sessions.set(hash, { expiresAt:Date.now() + duration, remember });
+      try { if (remember) await savePairings(); }
+      catch { sessions.delete(hash); return send(response, 500, { error:'Could not save pairing; try again' }); }
+      return send(response, 200, { paired: true }, { 'set-cookie': `vs_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(duration / 1000)}` });
     }
     const cookie = request.headers.cookie?.match(/(?:^|;\s*)vs_session=([A-Za-z0-9_-]+)/)?.[1];
-    if (!cookie || !sessions.has(cookie) || sessions.get(cookie) < Date.now()) return send(response, 401, { error: 'Pair with the host app first' });
+    const authorized = cookie && sessions.get(tokenHash(cookie));
+    if (!authorized || authorized.expiresAt < Date.now()) return send(response, 401, { error: 'Pair with the host app first' });
     try {
       if (request.method === 'GET' && url.pathname === '/api/status') return send(response, 200, await handlers.status());
       if (request.method === 'GET' && url.pathname === '/api/library') return send(response, 200, await handlers.library(url.searchParams.get('q') || '', url.searchParams.get('offset') || '0', url.searchParams.get('limit') || '60', {key:url.searchParams.get('key'),season:url.searchParams.get('season'),view:url.searchParams.get('view') || 'all'}));
@@ -111,13 +125,13 @@ function createLanServer(handlers, options = {}) {
     return { port: server.address().port, addresses: lanAddresses() };
   }
 
-  async function stop() {
+  async function stop({ revoke = false } = {}) {
     if (!server) return;
     const old = server;
     server = null;
     old.closeAllConnections?.();
     await new Promise(resolve => old.close(resolve));
-    sessions.clear();
+    if (revoke) { sessions.clear(); await savePairings(); }
     code = null;
   }
 

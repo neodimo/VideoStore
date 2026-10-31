@@ -38,7 +38,7 @@ function probeHost(host, options = {}) {
         try {
           const identity = JSON.parse(raw);
           if (identity.app === 'videostore' && identity.protocol === 1 && typeof identity.name === 'string')
-            return finish({ host, name: identity.name.slice(0, 80), port });
+            return finish({ host, name: identity.name.slice(0, 80), port, ...(/^[a-f0-9-]{36}$/i.test(identity.id || '') ? { id: identity.id } : {}) });
         } catch {}
         finish(null);
       });

@@ -36,6 +36,14 @@ contextBridge.exposeInMainWorld('videostore', {
     ipcRenderer.on('media:jobs', handler);
     return () => ipcRenderer.removeListener('media:jobs', handler);
   },
+  primaryStatus: () => ipcRenderer.invoke('primary:status'),
+  primaryRetry: () => ipcRenderer.invoke('primary:retry'),
+  primaryForget: () => ipcRenderer.invoke('primary:forget'),
+  onPrimaryStatus: callback => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('primary:status', handler);
+    return () => ipcRenderer.removeListener('primary:status', handler);
+  },
   lanStatus: () => ipcRenderer.invoke('lan:status'),
   lanStart: () => ipcRenderer.invoke('lan:start'),
   lanStop: () => ipcRenderer.invoke('lan:stop'),
