@@ -17,6 +17,7 @@ const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
 const { discoverPlexLibraries, readPlexMetadata, plexPathKey, applyPlexMetadata } = require('./plex.cjs');
 const { createPlexSync } = require('./plex-sync.cjs');
+const { backupCatalog } = require('./catalog-backups.cjs');
 const { plexPoster } = require('./plex-artwork.cjs');
 const { listHostLibrary } = require('./host-library.cjs');
 const { connectionRecord, partitionFor, locatePrimary } = require('./primary-host.cjs');
@@ -238,7 +239,7 @@ app.whenReady().then(async () => {
   plexSync = createPlexSync({
     getLibrary: () => library, readMetadata: readPlexMetadata, addFiles, save,
     onSynced: result => { if (result.updated || result.added) for (const window of BrowserWindow.getAllWindows()) window.webContents.send('library:changed'); },
-    backup: async () => { await save(); await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`); }
+    backup: async () => { await save(); await backupCatalog(libraryPath); }
   });
   await plexSync.sync();
   const syncTimer = setInterval(() => { void plexSync.sync(); }, 60_000);
@@ -388,7 +389,7 @@ app.whenReady().then(async () => {
     const errors = roots.filter(root => !root.available).map(root => `${root.name}: ${root.reason}`);
     // Keep a recoverable catalog snapshot before refreshing existing title identities.
     await save();
-    await fs.copyFile(libraryPath, `${libraryPath}.pre-plex-${crypto.randomUUID()}.bak`);
+    await backupCatalog(libraryPath);
     let plexMetadata;
     try {
       const metadata = readPlexMetadata();
