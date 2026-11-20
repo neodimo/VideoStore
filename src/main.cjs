@@ -17,7 +17,7 @@ const { createLanServer } = require('./lan.cjs');
 const { PORT, probeHost, discoverHosts } = require('./discovery.cjs');
 const { discoverPlexLibraries, readPlexMetadata, plexPathKey, applyPlexMetadata } = require('./plex.cjs');
 const { createPlexSync } = require('./plex-sync.cjs');
-const { backupCatalog } = require('./catalog-backups.cjs');
+const { backupCatalog, pruneCatalogBackups } = require('./catalog-backups.cjs');
 const { plexPoster } = require('./plex-artwork.cjs');
 const { listHostLibrary } = require('./host-library.cjs');
 const { connectionRecord, partitionFor, locatePrimary } = require('./primary-host.cjs');
@@ -235,6 +235,8 @@ app.whenReady().then(async () => {
   } catch (error) { if (error.code !== 'ENOENT') { dialog.showErrorBox('Library unavailable', 'VideoStore could not read its saved library. No connection settings were changed.'); app.quit(); return; } }
   if (!library.hostIdentity) { library.hostIdentity = crypto.randomUUID(); await save(); }
   for (const item of library.items) item.rank = score(item.quality, library.preferences);
+  // Old previews left an unbounded number of full catalog snapshots behind.
+  await pruneCatalogBackups(libraryPath);
 
   plexSync = createPlexSync({
     getLibrary: () => library, readMetadata: readPlexMetadata, addFiles, save,
